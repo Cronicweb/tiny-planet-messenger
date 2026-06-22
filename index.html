@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Tiny Planet Messenger</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<!-- Loading screen -->
+<div id="loader">
+  <div class="planet-spin"></div>
+  <h1>Tiny Planet Messenger</h1>
+  <p>Spinning up a cozy little world…</p>
+</div>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <!-- Top bar -->
+  <div id="topbar">
+    <div class="pill" id="levelPill">⭐ Lvl <span id="levelCount">1</span></div>
+    <div class="pill" id="onlinePill">🌐 <span id="onlineCount">1</span> online</div>
+    <div class="pill" id="gemPill">💎 <span id="gemCount">0</span></div>
+    <div class="pill" id="regionPill">📍 <span id="regionName">Town</span></div>
+    <div class="pill" id="weatherPill">☀️ <span id="weatherName">Clear</span></div>
+    <div class="pill" id="netPill">🔌 <span id="netStatus">Solo</span></div>
+  </div>
+
+  <!-- Quest panel -->
+  <div id="questPanel">
+    <div class="quest-title">📬 Current Delivery</div>
+    <div id="questText">Walk up to a glowing NPC to pick up a delivery.</div>
+    <div id="questHint"></div>
+  </div>
+
+  <!-- Dialogue box -->
+  <div id="dialogue" class="hidden">
+    <div class="dlg-avatar" id="dlgAvatar">🙂</div>
+    <div class="dlg-body">
+      <div class="dlg-name" id="dlgName">NPC</div>
+      <div class="dlg-text" id="dlgText"></div>
+      <button id="dlgAction">Accept ▶</button>
+    </div>
+  </div>
+
+  <!-- Emoji bar -->
+  <div id="emojiBar"></div>
+
+  <!-- Mobile joystick -->
+  <div id="joystick"><div id="stick"></div></div>
+
+  <!-- Interact button (mobile) -->
+  <button id="interactBtn">✋</button>
+
+  <!-- Toast -->
+  <div id="toast"></div>
+
+  <!-- Chat Input -->
+  <div id="chatInputBox" class="hidden">
+    <input type="text" id="chatInput" placeholder="Press Enter to chat..." maxlength="40"/>
+  </div>
+
+  <!-- Side buttons -->
+  <button id="journalBtn" title="Journal (J)">📖</button>
+  <button id="muteBtn" title="Sound">🔊</button>
+
+  <!-- Journal -->
+  <div id="journal" class="hidden">
+    <h2>📖 Messenger's Journal</h2>
+    <div class="jrow"><span>⭐ Level</span><b id="jLevel">1</b></div>
+    <div class="jrow"><span>✨ XP</span><b id="jXP">0 / 100</b></div>
+    <div class="jrow"><span>📦 Deliveries completed</span><b id="jDeliveries">0</b></div>
+    <div class="jrow"><span>💎 Gems collected</span><b id="jGems">0 / 0</b></div>
+    <div class="jrow"><span>🗺️ Regions visited</span><b id="jRegions">0 / 6</b></div>
+    <div class="jblock"><div class="jhead">Regions</div><div id="jRegionList"></div></div>
+    <div class="jblock"><div class="jhead">✦ Secrets discovered</div><div id="jSecrets"><i>None yet — explore off the beaten path…</i></div></div>
+    <button id="closeJournal">Close</button>
+  </div>
+
+  <!-- Build Menu -->
+  <div id="buildMenu" class="hidden">
+    <h2>🔨 Build Settlement</h2>
+    <div class="build-items">
+      <button class="build-btn" onclick="buildProp('House', 10)">🏠 House (10 💎)</button>
+      <button class="build-btn" onclick="buildProp('Tree', 5)">🌲 Tree (5 💎)</button>
+      <button class="build-btn" onclick="buildProp('Mailbox', 15)">📬 Mailbox (15 💎)</button>
+    </div>
+    <button onclick="document.getElementById('buildMenu').classList.add('hidden')">Cancel</button>
+  </div>
+  <button id="openBuildBtn" title="Build (B)">🔨</button>
+
+  <!-- Help -->
+  <button id="helpBtn" title="Controls">？</button>
+  <div id="helpCard" class="hidden">
+    <h3>How to play</h3>
+    <ul>
+      <li><b>Move:</b> WASD / Arrow keys (or joystick on mobile)</li>
+      <li><b>Camera:</b> drag mouse / swipe</li>
+      <li><b>Interact:</b> walk close to a glowing NPC, press <b>E</b> / ✋</li>
+      <li><b>Emote:</b> click an emoji, or press <b>1–6</b></li>
+      <li><b>Goal:</b> deliver letters & packages, collect 💎, explore every region!</li>
+    </ul>
+    <button id="closeHelp">Got it</button>
+  </div>
+</div>
+
+<!-- Character customization -->
+<div id="customizer">
+  <div class="cust-card">
+    <h1>Create your messenger</h1>
+    <div id="charPreview"></div>
+    <div class="cust-row">
+      <span>Body color</span>
+      <div class="swatches" id="bodySwatches"></div>
+    </div>
+    <div class="cust-row">
+      <span>Hat color</span>
+      <div class="swatches" id="hatSwatches"></div>
+    </div>
+    <div class="cust-row">
+      <span>Name</span>
+      <input id="nameInput" maxlength="12" placeholder="Pip" value="Pip" />
+    </div>
+    <button id="startBtn">Start exploring ✦</button>
+  </div>
+</div>
+
+<!-- Weather overlay layers -->
+<div id="weatherFX"></div>
+<div id="flash"></div>
+
+<!-- Art-direction overlays: watercolor grade + vignette + film grain -->
+<div id="grade"></div>
+<div id="vignette"></div>
+<div id="grain"></div>
+
+<!-- Fatal error overlay (instead of a silent black screen) -->
+<div id="fatal" class="hidden">
+  <div class="fatal-card">
+    <div class="fatal-emoji">😿</div>
+    <h2 id="fatalTitle">Something went wrong</h2>
+    <p id="fatalDetail"></p>
+    <p class="fatal-tip">Tip: this game needs <b>WebGL</b>. Open it in a normal
+    Chrome/Firefox/Edge/Safari window, enable hardware acceleration, and reload.
+    On mobile, use the latest Chrome or Safari.</p>
+    <button onclick="location.reload()">Reload</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="game.js"></script>
+<script src="modules.js"></script>
+</body>
+</html>
