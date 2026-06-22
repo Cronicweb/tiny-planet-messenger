@@ -20,7 +20,10 @@ function setNetStatus(s){ const el=document.getElementById("netStatus"); if(el)e
 function handleNet(m){
   switch(m.t){
     case "welcome": net.id=m.id; break;
-    case "count": document.getElementById("onlineCount").textContent=m.n; break;
+    case "count": 
+      const ot = document.getElementById("onlineText");
+      if(ot) ot.innerHTML = m.n > 1 ? `Explorers online: <span id="onlineCount">${m.n}</span>` : `Exploring solo`;
+      break;
     case "roster": m.players.forEach(addRemote); break;
     case "move": updateRemote(m); break;
     case "emote": { const p=net.players.get(m.id); if(p) spawnEmote(p.group,m.e); break; }
@@ -186,6 +189,30 @@ function sfx(type){
     const lp=actx.createBiquadFilter();lp.type="lowpass";lp.frequency.value=200;
     const g=actx.createGain();g.gain.setValueAtTime(0.4,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.8);
     s.connect(lp);lp.connect(g);g.connect(master);s.start(t);s.stop(t+0.9);}
+  else if(type==="footstep"){
+    const s=actx.createBufferSource();s.buffer=noiseBuf;
+    const lp=actx.createBiquadFilter();lp.type="lowpass";lp.frequency.value=1200;
+    const g=actx.createGain();g.gain.setValueAtTime(0.08,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.05);
+    s.connect(lp);lp.connect(g);g.connect(master);s.start(t);s.stop(t+0.06);
+  }
+  else if(type==="jump"){
+    const o=actx.createOscillator();o.type="sine";o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(400,t+0.2);
+    const g=actx.createGain();g.gain.setValueAtTime(0.1,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.2);
+    o.connect(g);g.connect(master);o.start(t);o.stop(t+0.25);
+  }
+  else if(type==="land"){
+    ping(80,0.1,0,0.15,"square");
+    const s=actx.createBufferSource();s.buffer=noiseBuf;
+    const g=actx.createGain();g.gain.setValueAtTime(0.1,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.1);
+    s.connect(g);g.connect(master);s.start(t);s.stop(t+0.12);
+  }
+  else if(type==="attack"){
+    const s=actx.createBufferSource();s.buffer=noiseBuf;
+    const g=actx.createGain();g.gain.setValueAtTime(0.15,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.15);
+    s.connect(g);g.connect(master);s.start(t);s.stop(t+0.16);
+    ping(600,0.1,0,0.08,"sine");
+  }
+  else if(type==="hit"){ping(200,0.1,0,0.2,"sawtooth");}
 }
 
 /* =========================================================

@@ -21,7 +21,8 @@ canvas{display:block;position:fixed;inset:0}
 
 /* Customizer */
 #customizer{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;
-  background:linear-gradient(160deg,#ffe7b8,#ffb59c 60%,#b6a7ff);padding:16px}
+  background:rgba(255, 240, 220, 0.7);backdrop-filter:blur(6px);padding:16px;transition:opacity 0.5s}
+.hook{font-size:16px;color:#6a5a88;margin:0 0 16px 0;line-height:1.4;font-weight:600}
 .cust-card{background:var(--panel);backdrop-filter:blur(8px);border-radius:26px;padding:26px 26px 22px;
   width:min(420px,100%);box-shadow:0 24px 60px rgba(80,50,120,.28);text-align:center}
 .cust-card h1{font-size:24px;color:#5a4a78;margin-bottom:14px}

@@ -23,9 +23,8 @@ let compassArrow = null;
 let fireflies = null;
 let dragging = false, lastX = 0, lastY = 0;
 let joyVec = {x:0, y:0};
-let gemCount = 0;
-let playerLevel = 1;
-let playerXP = 0;
+let gemCount = 0, playerLevel = 1, playerXP = 0;
+let buildingsBuilt = 0, footstepTimer = 0;
 let activeNPC = null;         // npc in interaction range
 let quest = null;             // {from, to, item, stage:'toDeliver'}
 let deliveriesDone = 0;
@@ -151,6 +150,7 @@ window.addEventListener('load', ()=>{
   document.getElementById('nameInput').addEventListener('input', e=>playerName=e.target.value||'Pip');
   document.getElementById('startBtn').onclick = startGame;
   initPreview();
+  initWorld(); // Build world in background
   setTimeout(()=>document.getElementById('loader').classList.add('hidden'), 900);
 });
 
@@ -321,21 +321,38 @@ function showFatal(title, detail){
   box.querySelector('#fatalDetail').textContent=detail||'';
   box.classList.remove('hidden');
 }
-function startGame(){
-  // run each build step guarded so any failure is shown, not silent-black
+let gameStarted = false;
+let idleCamAngle = 0;
+
+function initWorld() {
   const steps=[
-    ['checking WebGL', ()=>{ if(!hasWebGL()) throw new Error('WebGL is not available in this browser/tab. Try a different browser, enable hardware acceleration, or open the file in a normal browser window.'); }],
+    ['checking WebGL', ()=>{ if(!hasWebGL()) throw new Error('WebGL is not available in this browser/tab.'); }],
     ['scene', setupScene],['planet', buildPlanet],['regions', decorateRegions],
     ['NPCs', spawnNPCs],['gems', spawnGems],['secrets', spawnSecrets],
-    ['players', spawnBots],['you', spawnPlayer],['UI', buildEmojiBar],
-    ['controls', bindControls],['mobile', setupMobile],['weather', initWeather],
-    ['audio', initAudio],['journal', initJournal],['network', connectMultiplayer],
+    ['players', spawnBots],['weather', initWeather]
   ];
-  document.getElementById('customizer').classList.add('hidden');
+  for(const [label,fn] of steps){
+    try{ fn(); }catch(err){ console.error('Failed: '+label, err); return; }
+  }
+  clock=new THREE.Clock();
+  animate();
+}
+
+function startGame(){
+  if(gameStarted) return;
+  gameStarted = true;
+  const steps=[
+    ['you', spawnPlayer],['UI', buildEmojiBar],
+    ['controls', bindControls],['mobile', setupMobile],
+    ['audio', typeof initAudio==='function'?initAudio:()=>{}],
+    ['journal', initJournal],['network', connectMultiplayer],
+  ];
+  document.getElementById('customizer').style.opacity = '0';
+  setTimeout(()=>document.getElementById('customizer').classList.add('hidden'), 500);
   document.getElementById('hud').classList.remove('hidden');
   previewRunning=false; // stop customizer render loop
-  // free the preview's WebGL context so the main renderer has resources
   try{ if(pRenderer){ pRenderer.forceContextLoss&&pRenderer.forceContextLoss(); pRenderer.dispose&&pRenderer.dispose(); pRenderer=null; } }catch(e){}
+  
   for(const [label,fn] of steps){
     try{ fn(); }
     catch(err){
@@ -344,14 +361,7 @@ function startGame(){
       return;
     }
   }
-  try{
-    clock=new THREE.Clock();
-    animate();
-    toast('Welcome to your tiny planet! 🌍');
-  }catch(err){
-    console.error('Render loop error', err);
-    showFatal('Rendering error', (err&&err.message)||String(err));
-  }
+  toast('Welcome to your tiny planet! 🌍');
 }
 
 function setupScene(){
@@ -629,6 +639,15 @@ function finishQuest() {
   saveProgress();
 }
 
+function updateJournal(){
+  document.getElementById('jLevel').textContent=playerLevel;
+  document.getElementById('jVillageLevel').textContent=Math.floor(buildingsBuilt / 3) + 1;
+  document.getElementById('jBuildings').textContent=buildingsBuilt;
+  document.getElementById('jXP').textContent=playerXP+' / '+(playerLevel*100);
+  document.getElementById('jDeliveries').textContent=deliveriesDone;
+  document.getElementById('jGems').textContent=gemCount;
+}
+
 function showDialogue(name, lines, onComplete) {
   document.getElementById('dialogue').classList.remove('hidden');
   document.getElementById('dlgName').textContent=name;
@@ -700,7 +719,9 @@ function spawnPlayer(){
 
   const tag=document.createElement('div');tag.className='nameTag';tag.textContent=playerName+' (you)';tag.style.background='rgba(123,104,238,.9)';
   document.body.appendChild(tag);
-  
+  const totalBots = typeof bots !== 'undefined' ? bots.length + 1 : 1;
+  const ot = document.getElementById('onlineText');
+  if(ot) ot.innerHTML = totalBots > 1 ? `Explorers online: <span id="onlineCount">${totalBots}</span>` : `Exploring solo`;
   weaponMesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.6, 0.15), mat(0xdddddd));
   weaponMesh.position.set(0.4, 0.5, 0.2);
   weaponMesh.rotation.x = Math.PI / 2;
@@ -821,6 +842,9 @@ function buildProp(type, cost) {
     obj.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;}});
     scene.add(obj);
     props.push(obj);
+    spawnEmote(obj, '✨');
+    buildingsBuilt++;
+    updateJournal();
     
     // Sync to server
     const msg = {
@@ -837,6 +861,7 @@ function buildProp(type, cost) {
 }
 
 function updateHP(amt) {
+  if (amt < 0) sfx('hit');
   playerHP = Math.min(maxHP, Math.max(0, playerHP + amt));
   const hpBar = document.getElementById('hpBar');
   if(hpBar) {
@@ -859,7 +884,7 @@ function attack() {
   isAttacking = true;
   attackTimer = 0.25; 
   weaponMesh.visible = true;
-  sfx('pop');
+  sfx('attack');
   
   const hitDist = 1.8;
   const attackDir = player.forward.clone().normalize();
@@ -873,6 +898,7 @@ function attack() {
       const toSlime = sPos.clone().sub(playerPos).normalize();
       if (attackDir.dot(toSlime) > 0.4) {
         s.userData.hp -= 15;
+        sfx('hit');
         s.children[0].material.color.setHex(0xffffff);
         setTimeout(() => { if(s.children[0]) s.children[0].material.color.setHex(0x44ffaa); }, 100);
         
@@ -942,7 +968,18 @@ function orientGroup(group,up,forward, alt=0){
 /* ---------------- Main loop ---------------- */
 function animate(){
   requestAnimationFrame(animate);
-  const dt=Math.min(clock.getDelta(),0.05);
+  const dt=Math.min(clock.getDelta(),0.1);
+  const now=performance.now();
+
+  if(!gameStarted) {
+    idleCamAngle += dt * 0.2;
+    camera.position.set(Math.sin(idleCamAngle)*18, 12, Math.cos(idleCamAngle)*18);
+    camera.lookAt(0,0,0);
+    renderer.render(scene,camera);
+    return;
+  }
+
+  // --- Player logic below (only if gameStarted) ---
   const t=clock.elapsedTime;
 
   // ---- player input ----
@@ -963,7 +1000,7 @@ function animate(){
     if(player.altitude <= 0){
       player.velocity_y = 6;
       player.altitude = 0.01;
-      sfx('pop');
+      sfx('jump');
     } else if(player.velocity_y < 0){
       player.isGliding = true;
     }
@@ -979,6 +1016,7 @@ function animate(){
       player.altitude = 0;
       player.velocity_y = 0;
       player.isGliding = false;
+      sfx('land');
     }
   }
   if(player.glider) player.glider.visible = player.isGliding;
@@ -987,7 +1025,16 @@ function animate(){
   moveOnSphere(player,dt,fwd,turn,curSpeed);
 
   // walk animation
-  if(moving){player.walkPhase+=dt*10;}
+  if(moving && player.altitude <= 0){
+    player.walkPhase+=dt*10;
+    footstepTimer += dt;
+    if(footstepTimer > 0.35) {
+      sfx('footstep');
+      footstepTimer = 0;
+    }
+  } else {
+    footstepTimer = 0.35;
+  }
   animateLimbs(player.group,moving?player.walkPhase:0);
 
   // ---- camera follow (orbit behind player) ----
