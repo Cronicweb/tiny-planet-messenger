@@ -700,6 +700,13 @@ function spawnPlayer(){
 
   const tag=document.createElement('div');tag.className='nameTag';tag.textContent=playerName+' (you)';tag.style.background='rgba(123,104,238,.9)';
   document.body.appendChild(tag);
+  
+  weaponMesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.6, 0.15), mat(0xdddddd));
+  weaponMesh.position.set(0.4, 0.5, 0.2);
+  weaponMesh.rotation.x = Math.PI / 2;
+  weaponMesh.visible = false;
+  grp.add(weaponMesh);
+
   player={group:grp,dir:d,forward:tangent(d),tag,walkPhase:0, altitude:0, velocity_y:0, isGliding:false, glider:gliderGrp};
   document.getElementById('nameInput').value=playerName;
 }
