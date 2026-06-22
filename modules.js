@@ -169,13 +169,19 @@ function initAudio(){
       const g=actx.createGain();g.gain.value=0.025;o.connect(g);g.connect(master);o.start();
       const dt=actx.createOscillator();dt.frequency.value=0.05+i*0.03;const dg=actx.createGain();dg.gain.value=3;
       dt.connect(dg);dg.connect(o.frequency);dt.start();});
-    if(actx.state==="suspended")actx.resume();
+      
+    const resumeAudio = () => {
+      if(actx.state==="suspended") actx.resume();
+    };
+    window.addEventListener('mousedown', resumeAudio, {once:true});
+    window.addEventListener('touchstart', resumeAudio, {once:true});
+    resumeAudio();
   }catch(e){console.warn("audio off",e);}
 }
 function sfx(type){
   if(!actx||muted)return;
   const t=actx.currentTime;
-  const ping=(freq,dur,when,gain=0.18,wave="triangle")=>{
+  const ping=(freq,dur,when,gain=0.25,wave="triangle")=>{
     const o=actx.createOscillator();o.type=wave;o.frequency.value=freq;
     const g=actx.createGain();g.gain.setValueAtTime(0,t+when);g.gain.linearRampToValueAtTime(gain,t+when+0.01);
     g.gain.exponentialRampToValueAtTime(0.0001,t+when+dur);
@@ -192,8 +198,8 @@ function sfx(type){
   else if(type==="footstep"){
     const s=actx.createBufferSource();s.buffer=noiseBuf;
     const lp=actx.createBiquadFilter();lp.type="lowpass";lp.frequency.value=1200;
-    const g=actx.createGain();g.gain.setValueAtTime(0.08,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.05);
-    s.connect(lp);lp.connect(g);g.connect(master);s.start(t);s.stop(t+0.06);
+    const g=actx.createGain();g.gain.setValueAtTime(0.12,t);g.gain.exponentialRampToValueAtTime(0.001,t+0.08);
+    s.connect(lp);lp.connect(g);g.connect(master);s.start(t);s.stop(t+0.1);
   }
   else if(type==="jump"){
     const o=actx.createOscillator();o.type="sine";o.frequency.setValueAtTime(150,t);o.frequency.exponentialRampToValueAtTime(400,t+0.2);
