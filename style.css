@@ -152,3 +152,13 @@ canvas{display:block;position:fixed;inset:0}
 #chatInput::placeholder { color: #aaa; }
 .chatBubble { position:absolute; transform:translate(-50%,-100%); font-size:14px; background:#fff; color:#333; padding:6px 12px; border-radius:12px; font-weight:bold; box-shadow:0 4px 10px rgba(0,0,0,0.2); pointer-events:none; z-index:42; animation:bubblePop 0.3s ease; }
 @keyframes bubblePop { 0% { opacity:0; transform:translate(-50%, -80%) scale(0.6); } 100% { opacity:1; transform:translate(-50%, -100%) scale(1); } }
+
+/* HP Bar */
+#hpBarContainer { position:absolute; top:20px; left:50%; transform:translateX(-50%); width:200px; height:24px; background:rgba(0,0,0,0.5); border-radius:12px; overflow:hidden; z-index:10; border:2px solid #fff; pointer-events:none;}
+#hpBar { width:100%; height:100%; background:linear-gradient(90deg, #ff4a4a, #ff7b7b); transition:width 0.2s ease; }
+#hpText { position:absolute; top:0; left:0; width:100%; height:100%; text-align:center; line-height:24px; color:#fff; font-size:12px; font-weight:bold; text-shadow:1px 1px 2px #000; }
+
+/* Chat Log */
+#chatLog { position:absolute; bottom:130px; left:20px; width:300px; max-height:200px; overflow-y:hidden; color:#fff; font-size:13px; font-weight:bold; text-shadow:1px 1px 2px #000; pointer-events:none; z-index:40; display:flex; flex-direction:column; gap:4px; justify-content: flex-end;}
+.logMsg { background:rgba(0,0,0,0.4); padding:6px 10px; border-radius:8px; display:inline-block; align-self:flex-start; animation:bubblePop 0.2s; word-wrap: break-word; max-width: 100%;}
+.logMsg .name { color:#7df; margin-right:5px;}

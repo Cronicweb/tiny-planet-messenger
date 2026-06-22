@@ -32,6 +32,15 @@ let deliveriesDone = 0;
 const visitedRegions = new Set();
 const foundSecrets = new Set();
 let secrets = [];
+
+// Combat
+let playerHP = 100;
+let maxHP = 100;
+let slimes = [];
+let isAttacking = false;
+let attackTimer = 0;
+let weaponMesh = null;
+
 // networking
 const net = { ws:null, connected:false, id:null, players:new Map() };
 let chosenBody = '#7b68ee', chosenHat = '#ff7a59', playerName = 'Pip';
@@ -389,6 +398,17 @@ function setupScene(){
   fireflies = new THREE.Points(ffGeo, new THREE.PointsMaterial({color: 0xccee55, size: 0.4, transparent: true, opacity: 0}));
   scene.add(fireflies);
 
+  // Slimes
+  for(let i=0; i<10; i++) {
+    const s = makeSlime();
+    const p = randDir();
+    s.userData.dir = p.clone();
+    s.userData.forward = randDir().cross(p).normalize();
+    placeOnSurface(s, p);
+    scene.add(s);
+    slimes.push(s);
+  }
+
   addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
 }
 
@@ -517,62 +537,110 @@ function makeMailbox(){
   flag.position.set(.22, .9, .2);g.add(flag);
   return g;
 }
+function makeSlime() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 8), mat(0x44ffaa));
+  body.position.y = 0.35;
+  g.add(body);
+  const eye = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.1,0.1), mat(0x000000));
+  eye.position.set(0.12, 0.45, 0.3); g.add(eye);
+  const eye2 = new THREE.Mesh(new THREE.BoxGeometry(0.1,0.1,0.1), mat(0x000000));
+  eye2.position.set(-0.12, 0.45, 0.3); g.add(eye2);
+  g.userData = { hp: 30, state: 'idle', timer: 0, isSlime: true };
+  return g;
+}
 
 /* ---------------- NPCs & quests ---------------- */
 const NPC_DATA=[
-  {name:'Mabel',  emoji:'🧓', col:0xff7a59, lines:["Oh hello, little messenger!","Could you take this warm pie to Tobias by the beach?"], item:'🥧 Pie'},
-  {name:'Tobias', emoji:'🧑‍🦱', col:0x46c2cb, lines:["A package for me? Lovely!","Would you carry this seashell letter to Old Finn at the temple?"], item:'🐚 Shell letter'},
-  {name:'Old Finn',emoji:'🧙', col:0xe8c98f, lines:["The winds told me you'd come.","Bring this lantern to Greta in the forest, will you?"], item:'🏮 Lantern'},
-  {name:'Greta',  emoji:'👩‍🌾', col:0x3f9d54, lines:["You found me among the trees!","Please deliver these seeds to Rusty at the workshop."], item:'🌱 Seed pouch'},
-  {name:'Rusty',  emoji:'🧑‍🔧', col:0xb9b2a6, lines:["Grease and gears, a visitor!","Take this gizmo to Vesper at the old cemetery."], item:'⚙️ Gizmo'},
-  {name:'Vesper', emoji:'🧛', col:0x8fa0b0, lines:["Quiet here, isn't it?","Carry my thank-you note all the way back to Mabel in town."], item:'💌 Note'},
+  { id:'Grandpa', color:0xaabbcc, d:['Hello young one!','Could you deliver this?'], q:{type:'delivery', target:1} },
+  { id:'Mayor', color:0xee4444, d:['Welcome!','Watch out for slimes!'], q:{type:'hunt', target:'Slime', count:3} },
+  { id:'Chef', color:0xffaa22, d:['I need ingredients!','Thanks!'] },
+  { id:'Guard', color:0x3344dd, d:['Keep the peace.','Kill 5 slimes for me!'], q:{type:'hunt', target:'Slime', count:5} }
 ];
+
 function makeNpcDir(i){
-  // scatter NPCs roughly near different regions
   const r=REGIONS[i%REGIONS.length];
   const offset=randDir().multiplyScalar(0.4);
   return r.dir.clone().add(offset).normalize();
 }
+
 function spawnNPCs(){
   NPC_DATA.forEach((d,i)=>{
-    const grp=makeCharacter(d.col,0xffffff);
+    const grp=makeCharacter(d.color,0xffffff);
     grp.scale.setScalar(1.0);
     const nd=makeNpcDir(i);
     placeOnSurface(grp,nd,0);
     grp.traverse(o=>{if(o.isMesh)o.castShadow=true;});
-    // glow ring
-    const ring=new THREE.Mesh(new THREE.TorusGeometry(1.3,.08,8,24),
-      new THREE.MeshBasicMaterial({color:0xffe07a}));
+    const ring=new THREE.Mesh(new THREE.TorusGeometry(1.3,.08,8,24), new THREE.MeshBasicMaterial({color:0xffe07a}));
     ring.rotation.x=Math.PI/2;ring.position.y=.05;grp.add(ring);
     scene.add(grp);
     npcs.push({...d,group:grp,dir:nd,ring,index:i});
   });
-  startQuestFrom(0);
 }
-function startQuestFrom(i){
-  const from=npcs[i], to=npcs[(i+1)%npcs.length];
-  quest={fromIdx:i,toIdx:(i+1)%npcs.length,item:from.item,stage:'pickup',from,to};
-  updateQuestPanel();
-  highlightTargets();
-}
-function highlightTargets(){
-  npcs.forEach((n,i)=>{
-    const isTarget = quest && ((quest.stage==='pickup'&&i===quest.fromIdx)||(quest.stage==='deliver'&&i===quest.toIdx));
-    n.ring.visible=isTarget;
-    n.ring.material.color.set(quest&&quest.stage==='deliver'&&i===quest.toIdx?0x8ef0a0:0xffe07a);
+
+function tryInteract(){
+  const pPos = player.dir.clone().multiplyScalar(PLANET_R);
+  let closest = null, minD = 2.0;
+  npcs.forEach((b,i)=>{
+    const bPos = b.dir.clone().multiplyScalar(PLANET_R);
+    if(pPos.distanceTo(bPos)<minD){closest=i; minD=pPos.distanceTo(bPos);}
   });
-}
-function updateQuestPanel(){
-  const t=document.getElementById('questText'), h=document.getElementById('questHint');
-  if(!quest){t.textContent='All caught up! Wander and collect 💎.';h.textContent='';return;}
-  if(quest.stage==='pickup'){
-    t.innerHTML=`Visit <b>${quest.from.name}</b> ${quest.from.emoji} to pick up a delivery.`;
-    h.textContent=`Look for the golden glow.`;
-  }else{
-    t.innerHTML=`Deliver ${quest.item} to <b>${quest.to.name}</b> ${quest.to.emoji}.`;
-    h.textContent=`Carried in your satchel — follow the green glow.`;
+  if(closest!==null){
+    const n = npcs[closest];
+    if(quest && quest.type==='delivery' && quest.target===closest) {
+      showDialogue(n.id, ["Ah, the letter! Thank you!"]);
+      finishQuest();
+    } else if (quest && quest.type==='hunt' && quest.npcIndex===closest && quest.progress>=quest.count) {
+      showDialogue(n.id, ["You did it! The town is safer now!"]);
+      finishQuest();
+    } else if (!quest && n.q) {
+      showDialogue(n.id, n.d, ()=>{
+        quest = { ...n.q, npcIndex:closest, progress:0 };
+        toast(`New Quest: ${quest.type==='hunt'? 'Hunt '+quest.count+' '+quest.target+'s' : 'Deliver to NPC '+(quest.target+1)}!`);
+        if(quest.type === 'delivery') carryParcel();
+        updateJournal();
+      });
+    } else {
+      showDialogue(n.id, n.d);
+    }
   }
 }
+
+function checkHuntProgress(target) {
+  if (quest && quest.type === 'hunt' && quest.target === target && quest.progress < quest.count) {
+    quest.progress++;
+    toast(`Quest Progress: ${quest.progress}/${quest.count} ${target}s`);
+    if (quest.progress >= quest.count) {
+      toast(`Quest complete! Return to NPC ${quest.npcIndex+1}`);
+    }
+    updateJournal();
+  }
+}
+
+function finishQuest() {
+  if(quest && quest.type === 'delivery') dropParcel();
+  quest = null;
+  compassArrow.visible = false;
+  deliveriesDone++;
+  addXP(50);
+  addGems(5);
+  sfx('secret');
+  updateJournal();
+  saveProgress();
+}
+
+function showDialogue(name, lines, onComplete) {
+  document.getElementById('dialogue').classList.remove('hidden');
+  document.getElementById('dlgName').textContent=name;
+  let i=0;
+  document.getElementById('dlgText').textContent=lines[i];
+  document.getElementById('dlgAction').onclick=()=>{
+    i++;
+    if(i<lines.length) document.getElementById('dlgText').textContent=lines[i];
+    else { hideDialogue(); if(onComplete)onComplete(); }
+  };
+}
+function hideDialogue(){document.getElementById('dialogue').classList.add('hidden');}
 
 /* ---------------- Gems / collectibles ---------------- */
 function spawnGems(){
@@ -638,6 +706,11 @@ function spawnPlayer(){
 
 /* ---------------- Controls ---------------- */
 function bindControls(){
+  addEventListener('mousedown', e => {
+    if(e.button === 0 && document.getElementById('chatInputBox').classList.contains('hidden') && document.getElementById('buildMenu').classList.contains('hidden') && document.getElementById('dialogue').classList.contains('hidden') && document.getElementById('customizer').classList.contains('hidden')) {
+      attack();
+    }
+  });
   addEventListener('keydown',e=>{
     const chatBox = document.getElementById('chatInputBox');
     if (chatBox && !chatBox.classList.contains('hidden')) {
@@ -667,6 +740,7 @@ function bindControls(){
 
     keys[e.code]=true;
     if(e.code==='KeyE')tryInteract();
+    if(e.code==='KeyF')attack();
     if(e.code==='KeyB')document.getElementById('buildMenu').classList.toggle('hidden');
     if(/Digit[1-6]/.test(e.code))doEmote(EMOJIS[+e.code.slice(5)-1]);
   });
@@ -720,45 +794,6 @@ function setupMobile(){
   joy.addEventListener('touchend',()=>{jId=null;joyVec.x=joyVec.y=0;stick.style.transform='translate(0,0)';});
 }
 
-/* ---------------- Interaction ---------------- */
-function tryInteract(){
-  if(!activeNPC)return;
-  const n=activeNPC;
-  if(quest&&quest.stage==='pickup'&&n.index===quest.fromIdx){
-    showDialogue(n,()=>{
-      quest.stage='deliver';
-      carryParcel(quest.item);
-      updateQuestPanel();highlightTargets();hideDialogue();
-      toast('Picked up '+quest.item+'!');
-    },'Accept ▶');
-  }else if(quest&&quest.stage==='deliver'&&n.index===quest.toIdx){
-    showDialogue(n,()=>{
-      dropParcel();
-      toast('Delivered! +1 💎 +50 XP');
-      addGems(1);
-      deliveriesDone++;
-      addXP(50);
-      sfx('deliver');
-      netSend({t:'delivery'});
-      hideDialogue();
-      updateJournal();
-      // next quest in the chain
-      startQuestFrom(quest.toIdx);
-    },'Hand over ✦', "Thank you, messenger! That means a lot.");
-  }else{
-    // idle chatter
-    showDialogue(n,hideDialogue,'Bye 👋', n.lines[0]);
-  }
-}
-function showDialogue(n,action,label,overrideText){
-  document.getElementById('dlgAvatar').textContent=n.emoji;
-  document.getElementById('dlgName').textContent=n.name;
-  document.getElementById('dlgText').textContent=overrideText||n.lines.join(' ');
-  const btn=document.getElementById('dlgAction');btn.textContent=label;btn.onclick=action;
-  document.getElementById('dialogue').classList.remove('hidden');
-}
-function hideDialogue(){document.getElementById('dialogue').classList.add('hidden');}
-
 function buildProp(type, cost) {
   if (gemCount < cost) {
     toast(`Not enough gems! Need ${cost} 💎`);
@@ -792,6 +827,58 @@ function buildProp(type, cost) {
     toast(`Built a ${type}!`);
     addXP(10);
   }
+}
+
+function updateHP(amt) {
+  playerHP = Math.min(maxHP, Math.max(0, playerHP + amt));
+  const hpBar = document.getElementById('hpBar');
+  if(hpBar) {
+    hpBar.style.width = (playerHP / maxHP * 100) + '%';
+    document.getElementById('hpText').textContent = `${playerHP} / ${maxHP} HP`;
+  }
+  
+  if (playerHP <= 0) {
+    toast("You were defeated! Respawning...");
+    player.dir.copy(randDir());
+    player.forward.copy(randDir()).cross(player.dir).normalize();
+    playerHP = maxHP;
+    updateHP(0);
+    if(gemCount > 0) addGems(-Math.min(gemCount, 5));
+  }
+}
+
+function attack() {
+  if (isAttacking) return;
+  isAttacking = true;
+  attackTimer = 0.25; 
+  weaponMesh.visible = true;
+  sfx('pop');
+  
+  const hitDist = 1.8;
+  const attackDir = player.forward.clone().normalize();
+  const playerPos = player.dir.clone().multiplyScalar(PLANET_R);
+  
+  slimes.forEach(s => {
+    if (s.userData.hp <= 0) return;
+    const sPos = s.userData.dir.clone().multiplyScalar(PLANET_R);
+    const dist = playerPos.distanceTo(sPos);
+    if (dist < hitDist) {
+      const toSlime = sPos.clone().sub(playerPos).normalize();
+      if (attackDir.dot(toSlime) > 0.4) {
+        s.userData.hp -= 15;
+        s.children[0].material.color.setHex(0xffffff);
+        setTimeout(() => { if(s.children[0]) s.children[0].material.color.setHex(0x44ffaa); }, 100);
+        
+        if (s.userData.hp <= 0) {
+          scene.remove(s);
+          addGems(1);
+          addXP(10);
+          toast("Defeated a Slime!");
+          checkHuntProgress('Slime');
+        }
+      }
+    }
+  });
 }
 
 function carryParcel(){
@@ -975,13 +1062,77 @@ function animate(){
 
   // ---- Target Compass ----
   if (quest && compassArrow) {
-    compassArrow.visible = true;
-    const targetNPC = quest.stage === 'pickup' ? quest.from : quest.to;
-    compassArrow.position.copy(player.group.position).add(player.dir.clone().multiplyScalar(3.0));
-    compassArrow.lookAt(targetNPC.group.position);
-    compassArrow.position.add(player.dir.clone().multiplyScalar(Math.sin(t*4)*0.1));
+    let targetIdx = quest.target; 
+    if (quest.type === 'hunt' && quest.progress >= quest.count) targetIdx = quest.npcIndex;
+    
+    if (quest.type === 'delivery' || (quest.type === 'hunt' && quest.progress >= quest.count)) {
+      compassArrow.visible = true;
+      const b = npcs[targetIdx];
+      const pPos = player.dir.clone().multiplyScalar(PLANET_R);
+      const bPos = b.dir.clone().multiplyScalar(PLANET_R);
+      const toB = bPos.clone().sub(pPos).normalize();
+      
+      const arrPos = player.dir.clone().multiplyScalar(PLANET_R + 1.5).add(player.forward.clone().multiplyScalar(-1.5));
+      compassArrow.position.copy(arrPos);
+      
+      const flatToB = toB.clone().projectOnPlane(player.dir).normalize();
+      compassArrow.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,-1), flatToB);
+      const upQ = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), player.dir);
+      compassArrow.quaternion.premultiply(upQ);
+    } else {
+      compassArrow.visible = false;
+    }
   } else if (compassArrow) {
     compassArrow.visible = false;
+  }
+
+  // ---- Slime AI ----
+  const pPos = player.dir.clone().multiplyScalar(PLANET_R);
+  slimes.forEach(s => {
+    if (s.userData.hp <= 0) return;
+    const sPos = s.userData.dir.clone().multiplyScalar(PLANET_R);
+    const dist = pPos.distanceTo(sPos);
+    
+    s.userData.timer -= dt;
+    if (s.userData.timer <= 0) {
+      s.userData.timer = 1 + Math.random();
+      if (dist < 8) s.userData.forward = pPos.clone().sub(sPos).normalize();
+      else s.userData.forward.applyAxisAngle(s.userData.dir, (Math.random()-0.5)*2).normalize();
+      s.userData.state = 'hop';
+    }
+    
+    if (s.userData.state === 'hop') {
+      const speed = 2 * dt;
+      s.userData.dir.add(s.userData.forward.clone().multiplyScalar(speed)).normalize();
+      placeOnSurface(s, s.userData.dir);
+      
+      const tNorm = 1 - s.userData.timer / 1.0; 
+      s.children[0].position.y = 0.35 + Math.sin(tNorm * Math.PI) * 0.5;
+      
+      const targetVec = s.userData.dir.clone().multiplyScalar(PLANET_R).add(s.userData.forward);
+      s.lookAt(targetVec);
+      
+      if (dist < 1.0 && tNorm > 0.5 && !s.userData.hitPlayer) {
+        s.userData.hitPlayer = true;
+        updateHP(-10);
+        sfx('pop');
+      }
+      if (tNorm > 0.9) {
+        s.userData.state = 'idle';
+        s.userData.hitPlayer = false;
+        s.children[0].position.y = 0.35;
+      }
+    }
+  });
+
+  // ---- Player Attack Animation ----
+  if (isAttacking) {
+    attackTimer -= dt;
+    weaponMesh.rotation.z = Math.sin(attackTimer * 10) * 2;
+    if (attackTimer <= 0) {
+      isAttacking = false;
+      weaponMesh.visible = false;
+    }
   }
 
   renderer.render(scene,camera);
@@ -1040,10 +1191,24 @@ function updateEmoteBubbles(){
   });
 }
 
+function appendChatLog(name, text) {
+  const log = document.getElementById('chatLog');
+  if(!log) return;
+  const d = document.createElement('div');
+  d.className = 'logMsg';
+  d.innerHTML = `<span class="name">${name}:</span> ${text}`;
+  log.appendChild(d);
+  if (log.children.length > 20) log.removeChild(log.firstChild);
+  log.scrollTop = log.scrollHeight;
+}
+
 function spawnChatBubble(group, text) {
   const b=document.createElement('div');b.className='chatBubble';b.textContent=text;document.body.appendChild(b);
   group.userData._chat={el:b, born:performance.now()};
   setTimeout(()=>{b.remove();if(group.userData._chat&&group.userData._chat.el===b)group.userData._chat=null;}, 4000);
+  
+  const name = group === player.group ? (player.name || "You") : (group.userData.name || "Someone");
+  appendChatLog(name, text);
 }
 
 function checkProximity(){
