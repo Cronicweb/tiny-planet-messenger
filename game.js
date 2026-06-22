@@ -690,7 +690,9 @@ function spawnBots(){
     scene.add(grp);
     bots.push({group:grp,dir:d,forward:fwd,turn:(Math.random()-.5),speed:.4+Math.random()*.4,tag,emoteTimer:3+Math.random()*6,name:BOT_NAMES[i%BOT_NAMES.length]});
   }
-  document.getElementById('onlineCount').textContent=bots.length+1;
+  const totalBots = bots.length + 1;
+  const ot = document.getElementById('onlineText');
+  if(ot) ot.innerHTML = totalBots > 1 ? `Explorers online: <span id="onlineCount">${totalBots}</span>` : `Exploring solo`;
 }
 
 /* ---------------- Player ---------------- */
