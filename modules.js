@@ -150,9 +150,57 @@ function flash(){const f=document.getElementById("flash");f.style.transition="no
   sfx("thunder");}
 
 /* =========================================================
-   AUDIO — synthesized ambience + SFX (WebAudio, no files)
+   AUDIO — ElevenLabs sample pack + synthesized fallback
    ========================================================= */
-let actx,master,muted=false,noiseBuf;
+let actx,master,muted=false,noiseBuf,windGain,ambientGain;
+
+/* Sample pack (generated with ElevenLabs sound effects). Each clip is keyed by
+   the same cue name used by sfx(); if a file is missing or cannot be decoded
+   (e.g. opened via file://) the original synthesized cue is used instead. */
+const SFX_DIR="sounds/";
+const SFX_GAIN={gem:0.7,deliver:0.75,pop:0.5,secret:0.7,thunder:0.9,footstep:0.3,jump:0.45,land:0.5,attack:0.45,hit:0.55};
+const SFX_VARY={footstep:0.18,jump:0.08,land:0.08,attack:0.12,hit:0.12};
+const sfxBuffers={};
+
+function decodeAudio(bytes){
+  return new Promise((res,rej)=>{ const p=actx.decodeAudioData(bytes,res,rej); if(p&&p.then)p.then(res,rej); });
+}
+async function loadSample(name){
+  const r=await fetch(SFX_DIR+name+".mp3");
+  if(!r.ok) throw new Error("missing "+name);
+  return decodeAudio(await r.arrayBuffer());
+}
+function loadSfxSamples(){
+  Object.keys(SFX_GAIN).forEach(async n=>{
+    try{ sfxBuffers[n]=await loadSample(n); }catch(e){ /* keep synth fallback */ }
+  });
+}
+async function loadAmbientBed(){
+  try{
+    const buf=await loadSample("ambient");
+    const src=actx.createBufferSource();src.buffer=buf;src.loop=true;
+    ambientGain=actx.createGain();ambientGain.gain.value=0;
+    src.connect(ambientGain);ambientGain.connect(master);src.start();
+    const t=actx.currentTime;
+    ambientGain.gain.linearRampToValueAtTime(0.3,t+4);
+    if(windGain){ // duck the synthesized wind so the two beds don't fight
+      windGain.gain.cancelScheduledValues(t);
+      windGain.gain.setValueAtTime(windGain.gain.value,t);
+      windGain.gain.linearRampToValueAtTime(0.015,t+4);
+    }
+  }catch(e){ /* synthesized wind stays at full level */ }
+}
+function playSample(type){
+  const buf=sfxBuffers[type];
+  if(!buf)return false;
+  const s=actx.createBufferSource();s.buffer=buf;
+  const v=SFX_VARY[type];
+  if(v)s.playbackRate.value=1+(Math.random()*2-1)*v;
+  const g=actx.createGain();g.gain.value=SFX_GAIN[type]||0.6;
+  s.connect(g);g.connect(master);s.start();
+  return true;
+}
+
 function initAudio(){
   try{
     actx=new (window.AudioContext||window.webkitAudioContext)();
@@ -161,7 +209,7 @@ function initAudio(){
     const d=noiseBuf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
     const wind=actx.createBufferSource();wind.buffer=noiseBuf;wind.loop=true;
     const lp=actx.createBiquadFilter();lp.type="lowpass";lp.frequency.value=420;
-    const wg=actx.createGain();wg.gain.value=0.06;
+    const wg=actx.createGain();wg.gain.value=0.06;windGain=wg;
     const lfo=actx.createOscillator();lfo.frequency.value=0.08;const lfoG=actx.createGain();lfoG.gain.value=0.04;
     lfo.connect(lfoG);lfoG.connect(wg.gain);
     wind.connect(lp);lp.connect(wg);wg.connect(master);wind.start();lfo.start();
@@ -176,10 +224,16 @@ function initAudio(){
     window.addEventListener('mousedown', resumeAudio, {once:true});
     window.addEventListener('touchstart', resumeAudio, {once:true});
     resumeAudio();
+    loadSfxSamples();
+    loadAmbientBed();
   }catch(e){console.warn("audio off",e);}
 }
 function sfx(type){
   if(!actx||muted)return;
+  if(playSample(type))return;
+  sfxSynth(type);
+}
+function sfxSynth(type){
   const t=actx.currentTime;
   const ping=(freq,dur,when,gain=0.25,wave="triangle")=>{
     const o=actx.createOscillator();o.type=wave;o.frequency.value=freq;

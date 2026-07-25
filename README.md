@@ -6,6 +6,7 @@ discover secrets, emote with other players, and explore six handcrafted regions.
 
 Built with **Three.js** (WebGL) on the front-end and a **zero-dependency Node.js
 WebSocket server** for real-time multiplayer. No build step, no `npm install`.
+Audio is a small set of MP3s generated with ElevenLabs, played through WebAudio.
 
 ---
 
@@ -53,7 +54,9 @@ Just open `index.html` directly in a browser. The game runs fully offline with
 - **Collectible gems** + a **secrets system** (6 hidden discoveries)
 - **Collectibles Journal** tracking deliveries, gems, regions & secrets
 - **Dynamic weather** (clear / cloudy / rain / snow) with lightning
-- **Synthesized ambient audio + SFX** (WebAudio — no audio files needed)
+- **Studio sound pack** — ElevenLabs-generated ambience & SFX (`sounds/`), layered
+  over the WebAudio engine, with the original synthesized cues as an automatic
+  fallback when the files can't be loaded (e.g. opening `index.html` via `file://`)
 - **Cel-shaded art direction** (modeled on Abeto's technical breakdown):
   toon/stepped lighting, custom **outline pass** on characters (inverted-hull),
   film grain, watercolor color-grade and vignette
@@ -70,6 +73,7 @@ Just open `index.html` directly in a browser. The game runs fully offline with
 | `style.css` | Styling |
 | `game.js` | Core engine: world, controller, quests, NPCs, gems |
 | `modules.js` | Networking, weather, audio, secrets & journal systems |
+| `sounds/` | ElevenLabs-generated ambience & sound effects (MP3) |
 
 ---
 
