@@ -3,15 +3,15 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>Tiny Planet Messenger</title>
+<title>Tiny Planet Messenger — New York City</title>
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
 <!-- Loading screen -->
 <div id="loader">
   <div class="planet-spin"></div>
-  <h1>Tiny Planet Messenger</h1>
-  <p>Spinning up a cozy little world…</p>
+  <h1>Tiny New York</h1>
+  <p>Paving the streets and lighting the windows…</p>
 </div>
 
 <!-- HUD -->
@@ -20,8 +20,8 @@
   <div id="topbar">
     <div class="pill" id="levelPill">⭐ Lvl <span id="levelCount">1</span></div>
     <div class="pill" id="onlinePill">🌐 <span id="onlineText">Exploring solo</span></div>
-    <div class="pill" id="gemPill">💎 <span id="gemCount">0</span></div>
-    <div class="pill" id="regionPill">📍 <span id="regionName">Town</span></div>
+    <div class="pill" id="gemPill">🪙 <span id="gemCount">0</span></div>
+    <div class="pill" id="regionPill">📍 <span id="regionName">Midtown</span></div>
     <div class="pill" id="weatherPill">☀️ <span id="weatherName">Clear</span></div>
     <div class="pill" id="netPill">🔌 <span id="netStatus">Solo</span></div>
   </div>
@@ -29,7 +29,7 @@
   <!-- Quest panel -->
   <div id="questPanel">
     <div class="quest-title">📬 Current Delivery</div>
-    <div id="questText">Walk up to a glowing NPC to pick up a delivery.</div>
+    <div id="questText">Walk up to a glowing local to pick up a delivery.</div>
     <div id="questHint"></div>
   </div>
 
@@ -73,26 +73,26 @@
 
   <!-- Journal -->
   <div id="journal" class="hidden">
-    <h2>📖 Messenger's Journal</h2>
+    <h2>📖 Courier's Notebook</h2>
     <div class="jrow"><span>⭐ Level</span><b id="jLevel">1</b></div>
-    <div class="jrow"><span>🏘️ Village Level</span><b id="jVillageLevel">1</b></div>
-    <div class="jrow"><span>🏠 Buildings Built</span><b id="jBuildings">0</b></div>
+    <div class="jrow"><span>🏙️ Block Level</span><b id="jVillageLevel">1</b></div>
+    <div class="jrow"><span>🏢 Buildings Raised</span><b id="jBuildings">0</b></div>
     <div class="jrow"><span>✨ XP</span><b id="jXP">0 / 100</b></div>
     <div class="jrow"><span>📦 Deliveries completed</span><b id="jDeliveries">0</b></div>
-    <div class="jrow"><span>💎 Gems collected</span><b id="jGems">0 / 0</b></div>
-    <div class="jrow"><span>🗺️ Regions visited</span><b id="jRegions">0 / 6</b></div>
-    <div class="jblock"><div class="jhead">Regions</div><div id="jRegionList"></div></div>
-    <div class="jblock"><div class="jhead">✦ Secrets discovered</div><div id="jSecrets"><i>None yet — explore off the beaten path…</i></div></div>
+    <div class="jrow"><span>🪙 Subway tokens</span><b id="jGems">0 / 0</b></div>
+    <div class="jrow"><span>🗺️ Neighbourhoods visited</span><b id="jRegions">0 / 6</b></div>
+    <div class="jblock"><div class="jhead">Neighbourhoods</div><div id="jRegionList"></div></div>
+    <div class="jblock"><div class="jhead">✦ Secrets discovered</div><div id="jSecrets"><i>None yet — try the side streets…</i></div></div>
     <button id="closeJournal">Close</button>
   </div>
 
   <!-- Build Menu -->
   <div id="buildMenu" class="hidden">
-    <h2>🔨 Build Settlement</h2>
+    <h2>🔨 Build the Block</h2>
     <div class="build-items">
-      <button class="build-btn" onclick="buildProp('House', 10)">🏠 House (10 💎)</button>
-      <button class="build-btn" onclick="buildProp('Tree', 5)">🌲 Tree (5 💎)</button>
-      <button class="build-btn" onclick="buildProp('Mailbox', 15)">📬 Mailbox (15 💎)</button>
+      <button class="build-btn" onclick="buildProp('House', 10)">🏢 Brownstone (10 🪙)</button>
+      <button class="build-btn" onclick="buildProp('Tree', 5)">🌳 Street Tree (5 🪙)</button>
+      <button class="build-btn" onclick="buildProp('Mailbox', 15)">📬 Mailbox (15 🪙)</button>
     </div>
     <button onclick="document.getElementById('buildMenu').classList.add('hidden')">Cancel</button>
   </div>
@@ -105,9 +105,9 @@
     <ul>
       <li><b>Move:</b> WASD / Arrow keys (or joystick on mobile)</li>
       <li><b>Camera:</b> drag mouse / swipe</li>
-      <li><b>Interact:</b> walk close to a glowing NPC, press <b>E</b> / ✋</li>
+      <li><b>Interact:</b> walk close to a glowing local, press <b>E</b> / ✋</li>
       <li><b>Emote:</b> click an emoji, or press <b>1–6</b></li>
-      <li><b>Goal:</b> deliver letters & packages, collect 💎, explore every region!</li>
+      <li><b>Goal:</b> run deliveries across the five boroughs, collect 🪙, and see every neighbourhood!</li>
     </ul>
     <button id="closeHelp">Got it</button>
   </div>
@@ -116,8 +116,8 @@
 <!-- Character customization -->
 <div id="customizer">
   <div class="cust-card">
-    <h1>Create your messenger</h1>
-    <p class="hook">Deliver letters, grow settlements, and help a tiny world thrive.</p>
+    <h1>Create your courier</h1>
+    <p class="hook">Run packages through Midtown, Harlem and Brooklyn — and keep the city moving.</p>
     <div id="charPreview"></div>
     <div class="cust-row">
       <span>Body color</span>
@@ -131,7 +131,7 @@
       <span>Name</span>
       <input id="nameInput" maxlength="12" placeholder="Pip" value="Pip" />
     </div>
-    <button id="startBtn">Start exploring ✦</button>
+    <button id="startBtn">Hit the streets ✦</button>
   </div>
 </div>
 

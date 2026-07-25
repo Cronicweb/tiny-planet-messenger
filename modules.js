@@ -10,7 +10,7 @@ function connectMultiplayer(){
     const ws = new WebSocket(proto+"://"+location.host);
     net.ws = ws;
     setNetStatus("Connecting…");
-    ws.onopen = ()=>{ net.connected=true; setNetStatus("Online ✓"); removeBots(); toast("Connected to other players! 🌐"); netSend(localState()); };
+    ws.onopen = ()=>{ net.connected=true; setNetStatus("Online ✓"); removeBots(); toast("Connected to other couriers! 🌐"); netSend(localState()); };
     ws.onclose = ()=>{ net.connected=false; setNetStatus("Solo (bots)"); clearRemotes(); };
     ws.onerror = ()=>{ setNetStatus("Solo (bots)"); };
     ws.onmessage = (ev)=>handleNet(JSON.parse(ev.data));
@@ -22,7 +22,7 @@ function handleNet(m){
     case "welcome": net.id=m.id; break;
     case "count": 
       const ot = document.getElementById("onlineText");
-      if(ot) ot.innerHTML = m.n > 1 ? `Explorers online: <span id="onlineCount">${m.n}</span>` : `Exploring solo`;
+      if(ot) ot.innerHTML = m.n > 1 ? `Explorers online: <span id="onlineCount">${m.n}</span>` : `Walking solo`;
       break;
     case "roster": m.players.forEach(addRemote); break;
     case "move": updateRemote(m); break;
@@ -105,12 +105,12 @@ function handleRemoteBuild(m) {
    WEATHER — clear / cloudy / rain / snow with FX
    ========================================================= */
 const WEATHER=[
-  {name:"Clear", icon:"☀️", bg:0xbfe3ff, fog:0.006, particles:0},
-  {name:"Cloudy",icon:"☁️", bg:0x9fb6c8, fog:0.010, particles:0},
-  {name:"Rain",  icon:"🌧️", bg:0x7e8da0, fog:0.015, particles:1, speed:34, color:0xaecbe0, lightning:true},
-  {name:"Snow",  icon:"❄️", bg:0xd8e6f0, fog:0.012, particles:1, speed:7,  color:0xffffff},
+  {name:"Clear", icon:"☀️", bg:0xa6c2dc, fog:0.008, particles:0},
+  {name:"Smog",  icon:"🌧️", bg:0x9aa5ad, fog:0.014, particles:0},
+  {name:"Rain",  icon:"☔", bg:0x6f7c8b, fog:0.018, particles:1, speed:34, color:0xaecbe0, lightning:true},
+  {name:"Snow",  icon:"❄️", bg:0xcdd8e2, fog:0.014, particles:1, speed:7,  color:0xffffff},
 ];
-let weather, weatherTimer=0, weatherIdx=0, precip=null, bgCur=new THREE.Color(0xbfe3ff), fogCur=0.006;
+let weather, weatherTimer=0, weatherIdx=0, precip=null, bgCur=new THREE.Color(0xa6c2dc), fogCur=0.008;
 function initWeather(){ setWeather(0); }
 function setWeather(i){
   weatherIdx=i; weather=WEATHER[i];
@@ -279,12 +279,12 @@ function sfxSynth(type){
    SECRETS — hidden discoverable spots
    ========================================================= */
 const SECRET_DATA=[
-  {dir:dir(80,-30),  emoji:"⭐", name:"Polar Wishing Star", desc:"A star fallen at the planet pole."},
-  {dir:dir(-78,90),  emoji:"🍾", name:"Message in a Bottle", desc:"A letter that drifted here long ago."},
-  {dir:dir(5,-95),   emoji:"🗝️", name:"Rusty Old Key", desc:"Opens... something, somewhere."},
-  {dir:dir(40,118),  emoji:"🦊", name:"Shy Forest Fox", desc:"It blinked at you, then vanished."},
-  {dir:dir(-25,-150),emoji:"💠", name:"Crystal Geode", desc:"Hidden in the industrial rubble."},
-  {dir:dir(62,15),   emoji:"🎐", name:"Singing Wind Chime", desc:"Hung quietly above the town."},
+  {dir:dir(80,-30),  emoji:"🗽", name:"Liberty Torch Spark", desc:"A green ember off the old lady's torch."},
+  {dir:dir(-78,90),  emoji:"🗾", name:"Faded Subway Map", desc:"Half the lines on it don't exist anymore."},
+  {dir:dir(5,-95),   emoji:"🔑", name:"Super's Master Key", desc:"Opens every boiler room in the borough."},
+  {dir:dir(40,118),  emoji:"🐦", name:"Pizza Pigeon", desc:"It stared you down, then took the slice."},
+  {dir:dir(-25,-150),emoji:"🎨", name:"Fresh Mural", desc:"Still tacky. Somebody just left."},
+  {dir:dir(62,15),   emoji:"🎷", name:"Platform Saxophonist", desc:"Playing to an empty express track."},
 ];
 function spawnSecrets(){
   SECRET_DATA.forEach((s,i)=>{
@@ -307,7 +307,7 @@ function checkSecrets(){
       addGems(2);
       sfx("secret");
       spawnEmote(player.group,s.emoji);
-      toast("✦ Secret found: "+s.name+" "+s.emoji+" (+2 gems)");
+      toast("✦ Found: "+s.name+" "+s.emoji+" (+2 🪙)");
       s.mesh.material.color.set(0x9ad17a);
       s.mesh.material.emissive.set(0x4f9d69);
       updateJournal();
@@ -332,5 +332,5 @@ function updateJournal(){
   document.getElementById("jRegionList").innerHTML=REGIONS.map(r=>
     '<span class="'+(visitedRegions.has(r.name)?"visited":"")+'">'+r.emoji+' '+r.name+(visitedRegions.has(r.name)?" ✓":"")+'</span>').join("");
   const sec=[...foundSecrets].map(i=>{const s=SECRET_DATA[i];return '<div>'+s.emoji+' <b>'+s.name+'</b> — '+s.desc+'</div>';});
-  document.getElementById("jSecrets").innerHTML=sec.length?sec.join(""):"<i>None yet — explore off the beaten path…</i>";
+  document.getElementById("jSecrets").innerHTML=sec.length?sec.join(""):"<i>None yet — try the side streets…</i>";
 }
