@@ -39,6 +39,9 @@ let slimes = [];
 let isAttacking = false;
 let attackTimer = 0;
 let weaponMesh = null;
+const WEAPON_REST_X = 0.9;   // resting tilt: blade angled up and forward
+const WEAPON_SWING = 1.0;    // extra rotation swept during an attack
+const ATTACK_DUR = 0.25;
 
 // networking
 const net = { ws:null, connected:false, id:null, players:new Map() };
@@ -724,11 +727,22 @@ function spawnPlayer(){
   const totalBots = typeof bots !== 'undefined' ? bots.length + 1 : 1;
   const ot = document.getElementById('onlineText');
   if(ot) ot.innerHTML = totalBots > 1 ? `Explorers online: <span id="onlineCount">${totalBots}</span>` : `Exploring solo`;
-  weaponMesh = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.6, 0.15), mat(0xdddddd));
-  weaponMesh.position.set(0.4, 0.5, 0.2);
-  weaponMesh.rotation.x = Math.PI / 2;
-  weaponMesh.visible = false;
-  grp.add(weaponMesh);
+  // Messenger's blade. Parented to the right arm so it follows the walk cycle,
+  // with the group origin at the grip so attacks swing from the hand.
+  weaponMesh = new THREE.Group();
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(.06,.06,.28,6), mat(0x6b4423));
+  const guard = new THREE.Mesh(new THREE.BoxGeometry(.34,.08,.2), mat(0xb08d57));
+  guard.position.y = .18;
+  const blade = new THREE.Mesh(new THREE.BoxGeometry(.09,.85,.16), mat(0xdcdfe6));
+  blade.position.y = .62;
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(.09,.22,4), mat(0xdcdfe6));
+  tip.position.y = 1.14; tip.rotation.y = Math.PI/4;
+  weaponMesh.add(grip, guard, blade, tip);
+  addOutline(weaponMesh);
+  weaponMesh.rotation.x = WEAPON_REST_X;
+  const rightArm = grp.children.find(o=>o.name==='arm' && o.userData.swing===1);
+  if(rightArm){ weaponMesh.position.set(0,-.45,.08); rightArm.add(weaponMesh); }
+  else { weaponMesh.position.set(.66,.56,.08); grp.add(weaponMesh); }
 
   player={group:grp,dir:d,forward:tangent(d),tag,walkPhase:0, altitude:0, velocity_y:0, isGliding:false, glider:gliderGrp};
   document.getElementById('nameInput').value=playerName;
@@ -884,8 +898,7 @@ function updateHP(amt) {
 function attack() {
   if (isAttacking) return;
   isAttacking = true;
-  attackTimer = 0.25; 
-  weaponMesh.visible = true;
+  attackTimer = ATTACK_DUR;
   sfx('attack');
   
   const hitDist = 1.8;
@@ -1182,12 +1195,13 @@ function animate(){
   });
 
   // ---- Player Attack Animation ----
-  if (isAttacking) {
+  if (isAttacking && weaponMesh) {
     attackTimer -= dt;
-    weaponMesh.rotation.z = Math.sin(attackTimer * 10) * 2;
+    const p = Math.min(1, Math.max(0, 1 - attackTimer / ATTACK_DUR));
+    weaponMesh.rotation.x = WEAPON_REST_X + Math.sin(p * Math.PI) * WEAPON_SWING;
     if (attackTimer <= 0) {
       isAttacking = false;
-      weaponMesh.visible = false;
+      weaponMesh.rotation.x = WEAPON_REST_X;
     }
   }
 
