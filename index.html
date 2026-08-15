@@ -425,6 +425,7 @@ const S = {
   camShake:0,
   gliding:false, glideBank:0,
   hp:100, atkCool:0, combo:0, comboT:0, dodgeT:0, dodgeCool:0, hitStop:0,
+  punchT:0, punchArm:1, punchKind:0, yankT:0, fovPunch:0, lock:null, lockT:0,
 };
 const camFX = { prevHeading:0, tilt:0 };
 const GRAV = 30, MAXSPD = 92;
@@ -875,10 +876,11 @@ function spawnEnemy(kind,x,y,z){
   const t=ETYPES[kind], m=makeEnemyMesh(t); m.position.set(x,y,z); scene.add(m);
   enemies.push({kind,t,mesh:m,hp:t.hp+ECON.lv*4,dmg:t.dmg+Math.min(14,(ECON.lv-1)*2),
     x,y,z,vx:0,vz:0,vy:0,pvx:0,pvz:0,cool:1+Math.random(),
-    stun:0,wind:0,thrown:0,proj:0,yank:null,flash:0,alive:true});
+    stun:0,wind:0,thrown:0,proj:0,yank:null,flash:0,alive:true,
+    lunge:0,lvx:0,lvz:0,rec:0,squash:0,intro:0,entr:0,dieT:0});
 }
 function killEnemy(e){
-  e.alive=false; scene.remove(e.mesh);
+  e.alive=false; e.dieT=.9; e.vy=Math.max(e.vy,4.5); // ragdoll tumble, then despawn
   ECON.grant(15,25); S.combo++; S.comboT=2.4;
   if(CRIME.active){ CRIME.left--; updateObjective(); if(CRIME.left<=0) CRIME.next(); }
 }
@@ -901,40 +903,85 @@ function bestTarget(maxD){
     if(score<bs){bs=score;best=e;} }
   return best;
 }
+/* persistent lock: the ring and your fists agree on the same enemy */
+function lockValid(e,maxD){ return !!(e && e.alive && e.mesh.position.distanceTo(S.pos)<=maxD); }
+function acquireTarget(maxD){
+  if(lockValid(S.lock,maxD+5) && S.lockT>0) return S.lock;
+  const c=bestTarget(maxD);
+  if(c){ S.lock=c; S.lockT=.8; }
+  else if(!lockValid(S.lock,maxD+5)) S.lock=null;
+  return S.lock;
+}
 const lockRing=new THREE.Mesh(new THREE.RingGeometry(.9,1.15,24),
   new THREE.MeshBasicMaterial({color:0xff4444,transparent:true,opacity:.8,side:THREE.DoubleSide,depthWrite:false}));
 lockRing.rotation.x=-Math.PI/2; lockRing.visible=false; scene.add(lockRing);
+/* impact FX layer: screen flash, particle burst pool, FOV punch */
+const hitFlashEl=document.createElement('div');
+hitFlashEl.style.cssText='position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:40;transition:opacity .16s';
+document.body.appendChild(hitFlashEl);
+const PBURST=70, pbPos=new Float32Array(PBURST*3), pbVel=new Float32Array(PBURST*3), pbLife=new Float32Array(PBURST);
+for(let j=0;j<PBURST;j++) pbPos[j*3+1]=-9999;
+const pbGeo=new THREE.BufferGeometry(); pbGeo.setAttribute('position',new THREE.BufferAttribute(pbPos,3));
+const pbPts=new THREE.Points(pbGeo,new THREE.PointsMaterial({color:0xfff2c0,size:.5,transparent:true,opacity:.95,depthWrite:false}));
+pbPts.frustumCulled=false; scene.add(pbPts);
+let pbI=0;
+function hitFx(p,heavy){
+  hitFlashEl.style.opacity=heavy?.26:.13;
+  clearTimeout(hitFx._t); hitFx._t=setTimeout(()=>hitFlashEl.style.opacity=0,45);
+  S.fovPunch=Math.min(9,S.fovPunch+(heavy?5.5:2.8));
+  const n=heavy?16:9;
+  for(let i=0;i<n;i++){ const j=pbI=(pbI+1)%PBURST;
+    pbPos[j*3]=p.x; pbPos[j*3+1]=p.y+1.1; pbPos[j*3+2]=p.z;
+    pbVel[j*3]=(Math.random()-.5)*16; pbVel[j*3+1]=Math.random()*10+3; pbVel[j*3+2]=(Math.random()-.5)*16;
+    pbLife[j]=.5; }
+}
+function updateFx(dt){
+  for(let j=0;j<PBURST;j++){ if(pbLife[j]<=0){ pbPos[j*3+1]=-9999; continue; }
+    pbLife[j]-=dt; pbVel[j*3+1]-=30*dt;
+    pbPos[j*3]+=pbVel[j*3]*dt; pbPos[j*3+1]+=pbVel[j*3+1]*dt; pbPos[j*3+2]+=pbVel[j*3+2]*dt; }
+  pbGeo.attributes.position.needsUpdate=true;
+  if(S.fovPunch>0) S.fovPunch*=Math.pow(.0005,dt);
+}
+/* visible yank web line */
+const yankGeo=new THREE.BufferGeometry();
+yankGeo.setAttribute('position',new THREE.BufferAttribute(new Float32Array(6),3));
+const yankLine=new THREE.Line(yankGeo,new THREE.LineBasicMaterial({color:0xf5f5f5}));
+yankLine.frustumCulled=false; yankLine.visible=false; scene.add(yankLine);
 function doPunch(){
   if(!started) return false;
-  if(S.atkCool>0) return !!bestTarget(9);     // mid-combo: consume click, don't fire a web
-  const e=bestTarget(9);
+  if(S.atkCool>0) return lockValid(S.lock,9)||!!bestTarget(9); // mid-combo: consume click
+  const e=(lockValid(S.lock,9)&&S.lockT>0)?S.lock:bestTarget(9); // hit what the ring shows
   if(!e) return false;                       // no target -> caller treats LMB as swing
+  S.lock=e; S.lockT=.9;
   const d=e.mesh.position.distanceTo(S.pos);
   S.atkCool=.26;
-  if(d>3.4){                                  // web strike: lunge onto the soft-locked target
+  if(d>3.4){                                  // web strike: lunge onto the locked target
     _v.copy(e.mesh.position).sub(S.pos).normalize();
     const sp=Math.max(26,S.vel.length());     // carry swing momentum into the strike
     S.vel.copy(_v.multiplyScalar(sp)); S.vel.y=Math.max(S.vel.y,5);
+    S.punchT=.32; S.punchKind=2;              // double-fist superman pose
     flash('WEB STRIKE'); AUD.thwip(); return true;
   }
   const spd=S.vel.length();
   let dmg=12+S.combo*2+(S.onGround?0:6)+Math.floor(spd/12); // momentum bonus damage
-  let label='';
+  let label='', heavyHit=false;
   if(e.mesh.position.y>e.y+1){ dmg+=8; label='AERIAL RAVE'; }        // juggle hits
   if(e.thrown>0){                             // just yanked in: hurl them into the crowd
     _v.copy(e.mesh.position).sub(S.pos).setY(0).normalize();
-    e.pvx=_v.x*34; e.pvz=_v.z*34; e.vy=6; e.proj=.7; e.thrown=0; e.stun=1.4;
-    dmg+=6; label='WEB THROW';
+    e.pvx=_v.x*42; e.pvz=_v.z*42; e.vy=7.5; e.proj=.8; e.thrown=0; e.stun=1.4;
+    dmg+=6; label='WEB THROW'; heavyHit=true; S.hitStop=.12;
   }
-  e.hp-=dmg; e.flash=.15; e.stun=Math.max(e.stun,.4);
-  e.wind=0; e.mesh.scale.set(1,1,1);          // stagger interrupts their attack windup
-  S.hitStop=.09;
+  e.hp-=dmg; e.flash=.15; e.stun=Math.max(e.stun,.4); e.squash=.22;
+  e.wind=0; e.lunge=0; e.mesh.scale.set(1,1,1); // stagger interrupts windup AND lunge
+  if(!heavyHit) S.hitStop=e.kind==='heavy'?.1:.07; // tiered hit-stop
   _v.copy(e.mesh.position).sub(S.pos).setY(0).normalize();
   const launcher=(S.combo>0 && (S.combo+1)%4===0);
   if(launcher){ e.vy=Math.max(e.vy,9.5); e.vx=_v.x*8; e.vz=_v.z*8;   // every 4th hit pops them up
-    if(!label) label='LAUNCHED'; S.hitStop=.13; }
+    if(!label) label='LAUNCHED'; S.hitStop=.13; heavyHit=true; }
   else { e.vx+=_v.x*15; e.vz+=_v.z*15; }
-  S.combo++; S.comboT=2.6; S.camShake=Math.max(S.camShake,launcher?.4:.25);
+  S.punchT=.3; S.punchArm=-S.punchArm; S.punchKind=launcher?1:0; // alternating L/R, uppercut on launcher
+  hitFx(e.mesh.position, heavyHit);
+  S.combo++; S.comboT=2.6; S.camShake=Math.max(S.camShake,launcher?.45:.3);
   AUD.punch();
   if(label) flash(label);
   comboEl.textContent='x'+S.combo+' COMBO'; comboEl.classList.add('pop');
@@ -944,10 +991,12 @@ function doPunch(){
 }
 function tryYank(){
   if(!started) return false;
-  const e=bestTarget(34);
+  const e=(lockValid(S.lock,34)&&S.lockT>0)?S.lock:bestTarget(34);
   if(!e || S.pos.distanceTo(e.mesh.position)<3) return false;
-  e.yank={to:S.pos.clone().add(new THREE.Vector3(0,1,0)), t:.5};
-  e.stun=1.2; e.wind=0; e.mesh.scale.set(1,1,1);
+  S.lock=e; S.lockT=.9;
+  e.yank={sp:14};                             // slingshot: accelerates along the web
+  e.stun=1.2; e.wind=0; e.lunge=0; e.mesh.scale.set(1,1,1);
+  S.yankT=.45;                                // arm-out yank pose
   AUD.thwip(); flash('WEB YANK');
   return true;
 }
@@ -984,7 +1033,7 @@ const CRIME=(()=>{
     new THREE.MeshStandardMaterial({color:0x8a6b2f, roughness:.8}));
   crate.castShadow=true; crate.visible=false; scene.add(crate);
   const C={active:false,left:0,name:'',cool:14,site:new THREE.Vector3(),announced:false,
-    wave:1,waves:1,rmax:6,
+    wave:1,waves:1,rmax:6,pending:0,
     spawnWave(){
       const cx=C.site.x, cz=C.site.z, h=C.site.y;
       const n=Math.min(8, 2+ECON.lv);
@@ -994,6 +1043,14 @@ const CRIME=(()=>{
         const kind=(i===0&&(ECON.lv>1||C.wave>1))?'heavy'
           :(Math.random()<Math.min(.55,.3+ECON.lv*.04)?'gunner':'thug');
         spawnEnemy(kind, cx+Math.cos(a)*r, h, cz+Math.sin(a)*r);
+        const e=enemies[enemies.length-1];
+        e.cool=1.1+i*.22+Math.random()*.4;     // choreographed: they don't all swing at once
+        if(kind==='heavy'){                    // the boss makes an entrance from above
+          e.mesh.position.y=h+24; e.vy=0;
+          e.entr=C.wave>1?'\u26A0 ENFORCER DROPS IN':'\u26A0 RINGLEADER';
+        } else if(C.wave>1){                   // reinforcements rappel in from the sky
+          e.mesh.position.y=h+12+Math.random()*10; e.vy=0;
+        } else e.intro=.25+i*.1;               // wave 1 grunts pop in staggered
       }
       C.left=n; updateObjective();
     },
@@ -1024,7 +1081,7 @@ const CRIME=(()=>{
       flash('\u26A0 CRIME REPORTED \u2014 '+C.name,2200);
     },
     next(){
-      if(C.wave<C.waves){ C.wave++; C.spawnWave(); flash('\u26A0 REINFORCEMENTS!',1800); }
+      if(C.wave<C.waves){ C.wave++; C.pending=.7; flash('\u26A0 REINFORCEMENTS!',1800); } // beat of silence first
       else C.resolve();
     },
     resolve(){
@@ -1037,6 +1094,7 @@ const CRIME=(()=>{
     update(dt){
       if(C.active){
         beaconMat.opacity=.28+Math.sin(performance.now()*.004)*.14;
+        if(C.pending>0){ C.pending-=dt; if(C.pending<=0) C.spawnWave(); }
         if(!C.announced && Math.hypot(C.site.x-S.pos.x,C.site.z-S.pos.z)<45 && Math.abs(S.pos.y-C.site.y)<20){
           C.announced=true; flash('CRIME SCENE \u2014 TAKE THEM DOWN',1800);
         }
@@ -1051,39 +1109,72 @@ function updateCombat(dt){
   if(S.atkCool>0)S.atkCool-=dt;
   if(S.dodgeT>0)S.dodgeT-=dt;
   if(S.dodgeCool>0)S.dodgeCool-=dt;
+  if(S.punchT>0)S.punchT-=dt;
+  if(S.yankT>0)S.yankT-=dt;
+  if(S.lockT>0)S.lockT-=dt;
   if(S.comboT>0){ S.comboT-=dt; if(S.comboT<=0){S.combo=0; comboEl.classList.remove('pop');} }
   S.hp=Math.min(100,S.hp+dt*2.5);            // slow regen
   hpfill.style.width=Math.max(0,S.hp)+'%';
   hpfill.style.background=S.hp>50?'#7ff0a0':S.hp>25?'#ffd050':'#ff6b6b';
   CRIME.update(dt);
+  let yanking=null;
   for(const e of enemies){
-    if(!e.alive) continue;
+    if(!e.alive){
+      if(e.dieT>0){                           // death tumble
+        e.dieT-=dt; const m=e.mesh;
+        m.rotation.x-=dt*4; m.rotation.z+=dt*1.5;
+        m.position.x+=e.vx*dt; m.position.z+=e.vz*dt;
+        m.position.y+=e.vy*dt; e.vy-=25*dt;
+        const k=Math.max(0,Math.min(1,e.dieT/.9)); m.scale.set(k,k,k);
+        if(e.dieT<=0) scene.remove(m);
+      }
+      continue;
+    }
     const m=e.mesh, t=e.t;
+    if(e.intro>0){                            // spawn pop-in
+      e.intro-=dt;
+      const k=Math.max(.01,Math.min(1,1-e.intro/.3)); m.scale.set(k,k,k);
+      if(e.intro<=0) m.scale.set(1,1,1);
+      continue;
+    }
     if(e.flash>0){ e.flash-=dt; m.userData.mat.color.setHex(e.flash>0?0xffffff:m.userData.baseCol); }
-    if(e.yank){                               // being pulled by web
-      e.yank.t-=dt;
-      m.position.lerp(S.pos, Math.min(1,dt*9));
-      if(e.yank.t<=0||m.position.distanceTo(S.pos)<2.2){
-        e.yank=null; e.thrown=1.2; e.vy=Math.max(e.vy,4);  // pops up: aerial/throw window
+    if(e.yank){                               // slingshot: rapid acceleration along the web
+      yanking=e;
+      e.yank.sp=Math.min(64, e.yank.sp+dt*180);
+      const tx=S.pos.x, ty=S.pos.y+2.6, tz=S.pos.z;   // aim slightly ABOVE the player
+      let ddx=tx-m.position.x, ddy=ty-m.position.y, ddz=tz-m.position.z;
+      const dl=Math.hypot(ddx,ddy,ddz)||1;
+      const stp=Math.min(dl, e.yank.sp*dt);
+      m.position.x+=ddx/dl*stp; m.position.y+=ddy/dl*stp; m.position.z+=ddz/dl*stp;
+      if(dl<2.8){
+        e.yank=null; e.thrown=1.2;            // sails past overhead: aerial/throw window
+        e.vy=Math.max(e.vy,5.5); e.vx=ddx/dl*5; e.vz=ddz/dl*5;
       }
       continue;
     }
     if(e.stun>0){ e.stun-=dt; }
     if(e.thrown>0) e.thrown-=dt;
+    if(e.rec>0) e.rec-=dt;
     // knockback / launch physics
     m.position.x+=(e.vx+e.pvx)*dt; m.position.z+=(e.vz+e.pvz)*dt;
     e.vx*=Math.max(0,1-dt*5); e.vz*=Math.max(0,1-dt*5);
     e.vy-=25*dt;
-    m.position.y=Math.max(e.y, m.position.y+e.vy*dt);
-    if(m.position.y<=e.y) e.vy=Math.max(0,e.vy);
+    const wasY=m.position.y;
+    m.position.y=Math.max(e.y, wasY+e.vy*dt);
+    if(m.position.y<=e.y && wasY>e.y+.02){    // landing reaction
+      if(e.vy<-10){ e.squash=.25; e.stun=Math.max(e.stun,.35); }
+      if(e.entr){ flash(e.entr,1600); e.entr=0; e.squash=.3;
+        S.camShake=Math.max(S.camShake,.45); AUD.land(1); }
+      e.vy=0;
+    } else if(m.position.y<=e.y) e.vy=Math.max(0,e.vy);
     if(e.proj>0){                             // thrown body: bowls over other enemies
       e.proj-=dt;
       for(const o of enemies){ if(o===e||!o.alive) continue;
         if(o.mesh.position.distanceTo(m.position)<2.4){
           o.hp-=18; o.flash=.15; o.stun=1;
           _v.copy(o.mesh.position).sub(m.position).setY(0).normalize();
-          o.vx+=_v.x*16; o.vz+=_v.z*16;
-          e.proj=0; flash('STRIKE!'); S.hitStop=.08;
+          o.vx+=_v.x*16; o.vz+=_v.z*16; o.squash=.25;
+          e.proj=0; flash('STRIKE!'); S.hitStop=.08; hitFx(o.mesh.position,true);
           if(o.hp<=0) killEnemy(o);
           break;
         } }
@@ -1093,7 +1184,25 @@ function updateCombat(dt){
     const hd=Math.hypot(dx,dz), vd=Math.abs(S.pos.y-m.position.y);
     const engaged=hd<70&&vd<26;
     m.lookAt(S.pos.x, m.position.y, S.pos.z);
+    if(e.squash>0){                           // impact squash & stretch
+      e.squash-=dt;
+      const q=Math.max(0,e.squash)/.25;
+      m.scale.set(1+q*.35, 1-q*.4, 1+q*.35);
+      if(e.squash<=0) m.scale.set(1,1,1);
+    }
+    if(e.lunge>0){                            // committed attack: actual swing motion
+      e.lunge-=dt;
+      m.position.x+=e.lvx*dt; m.position.z+=e.lvz*dt;
+      m.rotation.x=.5;                        // lean into the strike
+      const hd2=Math.hypot(S.pos.x-m.position.x,S.pos.z-m.position.z);
+      if(hd2<t.range+.9 && Math.abs(S.pos.y-m.position.y)<3.4){
+        dmgPlayer(e.dmg); e.lunge=0; e.rec=.55;
+      } else if(e.lunge<=0){ e.stun=Math.max(e.stun,.85); e.rec=.4; } // whiffed: stagger
+      continue;
+    }
     m.rotation.x=e.stun>0?-.4*Math.min(1,e.stun):0;   // stagger lean
+    if(m.position.y>e.y+.4 && e.stun<=0 && e.thrown<=0){ // still dropping in: no AI
+      e.cool=Math.max(e.cool,.3); continue; }
     if(!engaged||e.stun>0){
       if(e.wind>0){ e.wind=0; m.scale.set(1,1,1); if(e.flash<=0) m.userData.mat.color.setHex(m.userData.baseCol); }
       e.cool=Math.max(e.cool,.4); continue; }
@@ -1103,28 +1212,48 @@ function updateCombat(dt){
       const p=1+Math.sin(e.wind*40)*.05; m.scale.set(p,p,p);
       if(e.wind<=0){
         m.scale.set(1,1,1); if(e.flash<=0) m.userData.mat.color.setHex(m.userData.baseCol);
-        if(e.kind==='gunner'){ AUD.shot();
+        if(e.kind==='gunner'){ AUD.shot(); e.rec=.4;
           if(hd<t.range && Math.random()>Math.min(.75,S.vel.length()/70)) dmgPlayer(e.dmg);
           else flash('MISSED!');
-        } else if(hd<t.range+.8 && vd<3.4) dmgPlayer(e.dmg);
+        } else {                              // melee: windup releases into a LUNGE
+          e.lunge=.26; e.lvx=dx/(hd||1)*26; e.lvz=dz/(hd||1)*26;
+        }
       }
       continue;
     }
     if(e.kind==='gunner'){
       if(hd>16){ m.position.x+=dx/hd*t.speed*dt; m.position.z+=dz/hd*t.speed*dt; }
       e.cool-=dt;
-      if(e.cool<=0 && hd<t.range){ e.cool=t.cool; e.wind=.6; }
+      if(e.cool<=0 && e.rec<=0 && hd<t.range){ e.cool=t.cool; e.wind=.6; }
     } else {
       if(hd>t.range*.9){ m.position.x+=dx/hd*t.speed*dt; m.position.z+=dz/hd*t.speed*dt; }
       e.cool-=dt;
-      if(e.cool<=0 && hd<t.range && vd<3){ e.cool=t.cool; e.wind=.45; }
+      if(e.cool<=0 && e.rec<=0 && hd<t.range+1.2 && vd<3){ e.cool=t.cool; e.wind=.45; }
     }
   }
-  // soft-lock reticle under the current target
-  const lt=bestTarget(26);
+  // drop the lock if the player deliberately looks away from it
+  if(S.lock && S.lock.alive){
+    const dx=S.lock.mesh.position.x-S.pos.x, dz=S.lock.mesh.position.z-S.pos.z;
+    const hd=Math.hypot(dx,dz)||1;
+    if((dx*-Math.sin(cam.h)+dz*-Math.cos(cam.h))/hd < -.2){ S.lock=null; S.lockT=0; }
+  }
+  // persistent lock reticle: ring and punches target the SAME enemy
+  const lt=acquireTarget(26);
   if(lt){ lockRing.visible=true;
-    lockRing.position.set(lt.mesh.position.x, lt.y+.06, lt.mesh.position.z); }
+    lockRing.position.set(lt.mesh.position.x, lt.y+.06, lt.mesh.position.z);
+    lockRing.rotation.z+=dt*2.4;
+    const pu=1+Math.sin(performance.now()*.008)*.09;
+    lockRing.scale.set(pu,pu,1); }
   else lockRing.visible=false;
+  // yank web line
+  if(yanking){
+    const hand=_v3.set(.5,.7,0).applyQuaternion(hero.quaternion).add(S.pos);
+    const a=yankGeo.attributes.position;
+    a.setXYZ(0,hand.x,hand.y,hand.z);
+    a.setXYZ(1,yanking.mesh.position.x,yanking.mesh.position.y+1.2,yanking.mesh.position.z);
+    a.needsUpdate=true; yankLine.visible=true;
+  } else yankLine.visible=false;
+  updateFx(dt);
 }
 
 /* ================= VISUALS ================= */
@@ -1145,13 +1274,32 @@ function updateVisuals(dt, now){
   else if(S.zipping) pitch=-1.3;
   else pitch=THREE.MathUtils.clamp(-S.vel.y*.022,-.6,.85);
   if(S.trickTimer>0) pitch += S.trickSpin*(1-S.trickTimer/.9);
+  if(S.punchT>0&&S.punchKind===1) pitch-=.5*(S.punchT/.3);   // lean back into the uppercut
   eul.set(pitch,targetYaw,roll,'YXZ');
   heroQuatTarget.setFromEuler(eul);
   hero.quaternion.slerp(heroQuatTarget, Math.min(1,dt*7));
 
   /* limb animation */
   const {armL,armR,legL,legR}=heroParts;
-  if(S.attached){
+  if(S.punchT>0||S.yankT>0){                  // combat poses override locomotion
+    const atkArm=S.punchArm>0?armR:armL, offArm=S.punchArm>0?armL:armR;
+    if(S.yankT>0){                            // arm thrown out toward the yanked enemy
+      armR.rotation.x += (-2.5-armR.rotation.x)*dt*18;
+      armL.rotation.x += (-.4-armL.rotation.x)*dt*10;
+    } else if(S.punchKind===2){               // web strike: double-fist superman
+      for(const a of [armL,armR]) a.rotation.x += (-2.9-a.rotation.x)*dt*14;
+      legL.rotation.x*=.85; legR.rotation.x*=.85;
+    } else {
+      const k=S.punchT/.3;                    // 1 → 0 over the swing
+      const ext=S.punchKind===1?-2.6:-1.95;   // uppercut reaches higher than a straight
+      atkArm.rotation.x += ((k>.35?ext:-.3)-atkArm.rotation.x)*dt*22; // extend, then recover
+      atkArm.rotation.z += ((S.punchArm>0?.25:-.25)-atkArm.rotation.z)*dt*14;
+      offArm.rotation.x += (-.7-offArm.rotation.x)*dt*12;             // guard hand up
+      heroParts.torso.rotation.y += ((S.punchArm>0?-.4:.4)*Math.min(1,k*2)-heroParts.torso.rotation.y)*dt*16; // shoulder twist
+      if(!S.onGround){ legL.rotation.x += (.9-legL.rotation.x)*dt*10;
+        legR.rotation.x += (1.1-legR.rotation.x)*dt*10; }              // aerial tuck
+    }
+  } else if(S.attached){
     const webArm=S.swingSide>0?armL:armR, freeArm=S.swingSide>0?armR:armL;
     webArm.rotation.x += (-2.9-webArm.rotation.x)*dt*10;
     freeArm.rotation.x += (.6-freeArm.rotation.x)*dt*6;
@@ -1173,6 +1321,7 @@ function updateVisuals(dt, now){
   } else {
     for(const p of [armL,armR,legL,legR]){ p.rotation.x*=.92; p.rotation.z*=.92; }
   }
+  if(S.punchT<=0) heroParts.torso.rotation.y*=Math.max(0,1-dt*8); // untwist shoulders
   /* wings fade in/out; head tracks turn direction */
   wingMat.opacity += ((S.gliding?.5:0)-wingMat.opacity)*Math.min(1,dt*8);
   const headT = S.attached ? (S.swingSide>0?.45:-.45) : S.gliding ? S.glideBank*.5 : 0;
@@ -1237,7 +1386,7 @@ function updateVisuals(dt, now){
     camFX.tilt += (want-camFX.tilt)*Math.min(1,dt*4);
     camera.rotation.z += camFX.tilt;
   }
-  const targetFov=68+Math.min(26,spd*.3)+(S.diving?6:0)+(S.gliding?4:0);
+  const targetFov=68+Math.min(26,spd*.3)+(S.diving?6:0)+(S.gliding?4:0)+S.fovPunch;
   camera.fov+=(targetFov-camera.fov)*Math.min(1,dt*5);
   camera.updateProjectionMatrix();
 
