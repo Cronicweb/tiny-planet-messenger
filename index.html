@@ -54,7 +54,7 @@
 <div id="keys">
   <kbd>SPACE</kbd> hold: swing · release: launch<br/>
   <kbd>E</kbd> zip to point &nbsp; <kbd>SHIFT</kbd> dive &nbsp; <kbd>W A S D</kbd> steer<br/>
-  <kbd>Q</kbd> air trick &nbsp; <kbd>R</kbd> respawn &nbsp; <kbd>MOUSE</kbd> camera
+  <kbd>Q</kbd> air trick &nbsp; <kbd>R</kbd> respawn &nbsp; <kbd>M</kbd> mute &nbsp; <kbd>MOUSE</kbd> camera
 </div>
 <div id="speedo"><div class="num">0</div><div class="unit">MPH</div><div class="bar"><div class="fill"></div></div></div>
 <div id="action"></div>
@@ -388,6 +388,7 @@ const overlay=$('overlay'), speedNum=document.querySelector('#speedo .num'),
 window.__startGame = ()=>{
   started = true;
   overlay.style.display = 'none';
+  try { AUD.start(); } catch(e) {}
   try { renderer.domElement.requestPointerLock(); } catch(e) {}
 };
 window.__gameReady = true;
@@ -406,6 +407,7 @@ addEventListener('keydown', e=>{
   if(e.code==='KeyR') respawn();
   if(e.code==='KeyE') tryZip();
   if(e.code==='KeyQ') doTrick();
+  if(e.code==='KeyM') AUD.toggle();
 });
 addEventListener('keyup', e=>{
   keys[e.code]=false;
@@ -418,6 +420,112 @@ addEventListener('resize', ()=>{
 function respawn(){ S.pos.set(0,120,300); S.vel.set(0,0,-22); detach(); S.zipping=false; flash('RESPAWNED'); }
 function flash(t, ms=1100){ actionEl.textContent=t; actionEl.style.opacity=1;
   clearTimeout(flash._t); flash._t=setTimeout(()=>actionEl.style.opacity=0, ms); }
+
+/* ================= PROCEDURAL AUDIO ENGINE (WebAudio, zero assets) ================= */
+const AUD = (()=>{
+  let ctx=null, master=null, on=false, muted=false, sfxNoise=null;
+  let windGain=null, windFilt=null, whistleGain=null, whistleFilt=null, ambGain=null;
+  function noiseBuf(sec, brown){
+    const sr=ctx.sampleRate, n=(sec*sr)|0, b=ctx.createBuffer(1,n,sr), d=b.getChannelData(0);
+    let lp=0;
+    for(let i=0;i<n;i++){ const w=Math.random()*2-1;
+      if(brown){ lp=(lp+.02*w)/1.02; d[i]=lp*3.5; } else d[i]=w; }
+    return b;
+  }
+  function loopSrc(buf){ const s=ctx.createBufferSource(); s.buffer=buf; s.loop=true; return s; }
+  function burst(o){
+    if(!ctx) return;
+    const t=ctx.currentTime, dur=o.dur||.3;
+    const s=ctx.createBufferSource(); s.buffer=sfxNoise;
+    const f=ctx.createBiquadFilter(); f.type=o.type||'bandpass'; f.Q.value=o.q||2;
+    f.frequency.setValueAtTime(Math.max(40,o.f0||1000), t);
+    f.frequency.exponentialRampToValueAtTime(Math.max(40,o.f1||300), t+dur);
+    const g=ctx.createGain();
+    g.gain.setValueAtTime(o.vol||.3, t);
+    g.gain.exponentialRampToValueAtTime(.001, t+dur);
+    s.connect(f); f.connect(g); g.connect(master);
+    s.start(t); s.stop(t+dur+.05);
+  }
+  function honkLoop(){
+    if(!ctx) return;
+    const t=ctx.currentTime + 4 + Math.random()*10;
+    const o=ctx.createOscillator(), g=ctx.createGain(), f=ctx.createBiquadFilter();
+    o.type='square'; o.frequency.value=[392,440,466,349][(Math.random()*4)|0];
+    f.type='bandpass'; f.frequency.value=900; f.Q.value=2;
+    const v=.015+Math.random()*.02, dur=.25+Math.random()*.45;
+    g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(v,t+.03);
+    g.gain.setValueAtTime(v,t+dur); g.gain.linearRampToValueAtTime(0,t+dur+.07);
+    o.connect(f); f.connect(g);
+    if(ctx.createStereoPanner){ const p=ctx.createStereoPanner(); p.pan.value=Math.random()*2-1; g.connect(p); p.connect(master); }
+    else g.connect(master);
+    o.start(t); o.stop(t+dur+.2);
+    setTimeout(honkLoop, (t-ctx.currentTime+1)*1000);
+  }
+  function start(){
+    if(on) return; on=true;
+    ctx=new (window.AudioContext||window.webkitAudioContext)();
+    if(ctx.state==='suspended') ctx.resume();
+    master=ctx.createGain(); master.gain.value=.9; master.connect(ctx.destination);
+    sfxNoise=noiseBuf(1,false);
+    /* street ambience: low traffic rumble */
+    const amb=loopSrc(noiseBuf(4,true));
+    const ambF=ctx.createBiquadFilter(); ambF.type='lowpass'; ambF.frequency.value=320; ambF.Q.value=.4;
+    ambGain=ctx.createGain(); ambGain.gain.value=.10;
+    amb.connect(ambF); ambF.connect(ambGain); ambGain.connect(master); amb.start();
+    honkLoop();
+    /* airspeed wind bed */
+    const wn=loopSrc(noiseBuf(2,false));
+    windFilt=ctx.createBiquadFilter(); windFilt.type='bandpass'; windFilt.frequency.value=350; windFilt.Q.value=.8;
+    windGain=ctx.createGain(); windGain.gain.value=0;
+    wn.connect(windFilt); windFilt.connect(windGain); windGain.connect(master); wn.start();
+    /* high-speed whistle layer */
+    const wn2=loopSrc(noiseBuf(2,false));
+    whistleFilt=ctx.createBiquadFilter(); whistleFilt.type='bandpass'; whistleFilt.frequency.value=1800; whistleFilt.Q.value=6;
+    whistleGain=ctx.createGain(); whistleGain.gain.value=0;
+    wn2.connect(whistleFilt); whistleFilt.connect(whistleGain); whistleGain.connect(master); wn2.start();
+  }
+  function update(spd, height){
+    if(!ctx) return;
+    const t=ctx.currentTime;
+    const k=Math.max(0, Math.min(1,(spd-6)/(MAXSPD-6)));
+    windGain.gain.setTargetAtTime(Math.pow(k,1.4)*.55, t, .08);
+    windFilt.frequency.setTargetAtTime(280+k*950, t, .1);
+    const h=Math.max(0,(k-.55)/.45);
+    whistleGain.gain.setTargetAtTime(h*h*.22, t, .1);
+    whistleFilt.frequency.setTargetAtTime(1200+k*2600, t, .12);
+    /* street gets louder near the ground */
+    ambGain.gain.setTargetAtTime(.04 + .10*Math.max(0,1-height/120), t, .3);
+  }
+  function thwip(){
+    if(!ctx) return;
+    burst({dur:.12, f0:900, f1:5200, q:3, vol:.5});
+    const t=ctx.currentTime, o=ctx.createOscillator(), g=ctx.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(600,t); o.frequency.exponentialRampToValueAtTime(2400,t+.09);
+    g.gain.setValueAtTime(.18,t); g.gain.exponentialRampToValueAtTime(.001,t+.1);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+.12);
+  }
+  function release(){ burst({dur:.35, f0:1600, f1:300, q:1.2, vol:.25}); }
+  function whooshBig(){ burst({dur:.6, f0:2000, f1:250, q:1, vol:.3}); }
+  function zipSfx(){
+    if(!ctx) return;
+    const t=ctx.currentTime, o=ctx.createOscillator(), g=ctx.createGain(), f=ctx.createBiquadFilter();
+    o.type='sawtooth'; o.frequency.setValueAtTime(180,t); o.frequency.exponentialRampToValueAtTime(1400,t+.35);
+    f.type='lowpass'; f.frequency.value=2400;
+    g.gain.setValueAtTime(.12,t); g.gain.exponentialRampToValueAtTime(.001,t+.4);
+    o.connect(f); f.connect(g); g.connect(master); o.start(t); o.stop(t+.45);
+    burst({dur:.4, f0:500, f1:3000, q:1.5, vol:.2});
+  }
+  function land(k){
+    if(!ctx) return;
+    const t=ctx.currentTime, o=ctx.createOscillator(), g=ctx.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(120,t); o.frequency.exponentialRampToValueAtTime(38,t+.18);
+    g.gain.setValueAtTime(.5*k+.1,t); g.gain.exponentialRampToValueAtTime(.001,t+.22);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+.25);
+    burst({dur:.15, f0:1200, f1:200, q:.8, vol:.25*k+.05});
+  }
+  function toggle(){ if(!ctx) return; muted=!muted; master.gain.setTargetAtTime(muted?0:.9, ctx.currentTime, .03); flash(muted?'MUTED':'SOUND ON'); }
+  return {start, update, thwip, release, whooshBig, zipSfx, land, toggle};
+})();
 
 /* ================= SM2-STYLE AUTO ANCHOR ================= */
 const _v=new THREE.Vector3(), _v2=new THREE.Vector3(), _v3=new THREE.Vector3();
@@ -449,6 +557,7 @@ function findSwingAnchor(){
 
 function attach(a){
   S.attached=true; S.anchor.copy(a);
+  AUD.thwip();
   const d = S.pos.distanceTo(a);
   // rope sized so arc bottom stays above streets when possible
   S.ropeLen = Math.max(8, Math.min(d*.99, d));
@@ -462,6 +571,7 @@ function detach(){
     const up = Math.max(0, S.vel.y);
     S.vel.y += 3 + up*.12;
     S.vel.multiplyScalar(1.04);
+    AUD.release();
   }
   S.attached=false; webLine.visible=false;
 }
@@ -488,6 +598,7 @@ function tryZip(){
   detach();
   S.zipping=true; S.zipTarget.copy(t);
   S.camShake=.4;
+  AUD.zipSfx();
   flash('ZIP!');
 }
 
@@ -496,6 +607,7 @@ const TRICKS=['SWAN DIVE','CANNONBALL','COBRA FLIP','SKY SURFER','WEB WINGS'];
 function doTrick(){
   if(S.onGround||S.attached) return;
   S.trickTimer=.9; S.trickSpin=(Math.random()<.5?1:-1)*(Math.PI*2);
+  AUD.whooshBig();
   trickName.textContent=TRICKS[Math.floor(Math.random()*TRICKS.length)];
   trickEl.classList.add('pop');
   setTimeout(()=>trickEl.classList.remove('pop'), 900);
@@ -503,6 +615,7 @@ function doTrick(){
 
 /* ================= PHYSICS ================= */
 function collide(){
+  const wasGround=S.onGround, vyImpact=S.vel.y;
   S.onGround=false; S.wallNormal=null;
   if(S.pos.y<1.7){ S.pos.y=1.7; if(S.vel.y<0)S.vel.y=0; S.vel.x*=.9; S.vel.z*=.9; S.onGround=true; }
   const r=.85;
@@ -530,6 +643,7 @@ function collide(){
       S.wallNormal = n;
     }
   }
+  if(S.onGround && !wasGround && vyImpact < -9) AUD.land(Math.min(1, -vyImpact/45));
 }
 
 function step(dt){
@@ -728,6 +842,7 @@ function loop(now){
   if(started){
     const SUB=3;
     for(let i=0;i<SUB;i++) step(dt/SUB);
+    AUD.update(S.vel.length(), S.pos.y);
     updateVisuals(dt, now);
   } else {
     const t=now*.00008;
