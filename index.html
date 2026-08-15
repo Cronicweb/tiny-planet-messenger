@@ -116,7 +116,19 @@ if (!THREE || !THREE.WebGLRenderer) {
 }
 
 /* ================= RENDERER / SCENE ================= */
-const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
+function makeRenderer(){
+  const tries=[
+    {antialias:true,  powerPreference:'high-performance'},
+    {antialias:true},
+    {antialias:false},
+    {antialias:false, powerPreference:'low-power'},
+  ];
+  for(const o of tries){
+    try{ return new THREE.WebGLRenderer(o); }catch(e){ console.warn('WebGL opts failed', o, e); }
+  }
+  throw new Error('WebGL is disabled in this browser. Enable hardware acceleration (chrome://settings/system → "Use graphics acceleration") or open chrome://gpu to check WebGL status, then reload.');
+}
+const renderer = makeRenderer();
 renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
 renderer.shadowMap.enabled = true;
