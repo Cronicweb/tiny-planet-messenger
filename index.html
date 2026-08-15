@@ -52,22 +52,36 @@
          transition:opacity .3s,transform .3s;pointer-events:none;user-select:none}
   #trick.pop{opacity:1;transform:rotate(-4deg) scale(1.08)}
   #trick small{display:block;font-size:12px;letter-spacing:4px;color:#7fd4ff;font-style:normal}
+  #hpbar{width:190px;height:7px;background:rgba(255,255,255,.16);border-radius:4px;margin-top:9px;overflow:hidden}
+  #hpfill{width:100%;height:100%;background:#7ff0a0;border-radius:4px;transition:width .18s}
+  #econ{font-size:10.5px;letter-spacing:2px;opacity:.85;margin-top:5px}
+  #objective{position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:10;color:#fff;font-size:13px;
+             letter-spacing:2px;text-shadow:0 1px 6px rgba(0,0,0,.6);background:rgba(20,8,10,.45);
+             border:1px solid rgba(255,77,77,.5);padding:7px 18px;border-radius:4px;display:none;pointer-events:none}
+  #objective b{color:#ff6b6b}
+  #combo{position:fixed;top:42%;right:8%;z-index:10;color:#ffd050;font-size:22px;font-weight:800;font-style:italic;
+         letter-spacing:2px;text-shadow:0 2px 10px rgba(0,0,0,.6);opacity:0;transform:rotate(-3deg);
+         transition:opacity .25s,transform .25s;pointer-events:none;user-select:none}
+  #combo.pop{opacity:1;transform:rotate(-3deg) scale(1.1)}
 </style>
 </head>
 <body>
 <div id="vignette"></div>
 <canvas id="streaks"></canvas>
-<div id="hud"><div class="title">WEB <b>SLINGER</b> // FREE ROAM</div></div>
+<div id="hud"><div class="title">WEB <b>SLINGER</b> // FREE ROAM</div><div id="hpbar"><div id="hpfill"></div></div><div id="econ">LV 1 · 0/100 XP · $0</div></div>
 <div id="keys">
   <kbd>SPACE</kbd> hold: swing · release: launch<br/>
   <kbd>E</kbd> zip to point &nbsp; <kbd>SHIFT</kbd> dive &nbsp; <kbd>F</kbd> web wings &nbsp; <kbd>W A S D</kbd> steer<br/>
-  <kbd>Q</kbd> air trick &nbsp; <kbd>R</kbd> respawn &nbsp; <kbd>M</kbd> mute &nbsp; <kbd>MOUSE</kbd> camera
+  <kbd>LMB</kbd> punch near foes &nbsp; <kbd>Q</kbd> web-yank / air trick &nbsp; <kbd>SHIFT</kbd> ground: dodge<br/>
+  <kbd>R</kbd> respawn &nbsp; <kbd>M</kbd> mute &nbsp; <kbd>MOUSE</kbd> camera
 </div>
 <div id="speedo"><div class="ring"><svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="44"/><circle class="prog" cx="50" cy="50" r="44"/></svg><div class="inner"><div class="num">0</div><div class="unit">MPH</div></div></div></div>
 <div id="action"></div>
 <div id="reticle"><div class="c"></div></div>
 <div id="zipmark">ZIP</div>
 <div id="trick"><small>STYLE</small><span id="trickName">SWAN DIVE</span></div>
+<div id="objective"></div>
+<div id="combo"></div>
 <div id="overlay">
   <div class="card">
     <h1><span class="n">WEB</span> <span class="r">SLINGER</span> 2</h1>
@@ -410,6 +424,7 @@ const S = {
   swingSide:1,            // alternate hands like SM
   camShake:0,
   gliding:false, glideBank:0,
+  hp:100, atkCool:0, combo:0, comboT:0, dodgeT:0, dodgeCool:0,
 };
 const camFX = { prevHeading:0, tilt:0 };
 const GRAV = 30, MAXSPD = 92;
@@ -441,14 +456,15 @@ addEventListener('mousemove', e=>{
   cam.h -= e.movementX*.0023; cam.v -= e.movementY*.002;
   cam.v = Math.max(-1.3, Math.min(1.3, cam.v));
 });
-addEventListener('mousedown', e=>{ if(e.button===0) swingHeld=true; });
+addEventListener('mousedown', e=>{ if(e.button===0){ if(!doPunch()) swingHeld=true; } });
 addEventListener('mouseup',   e=>{ if(e.button===0) swingHeld=false; });
 addEventListener('keydown', e=>{
   keys[e.code]=true;
   if(e.code==='Space'){ swingHeld=true; e.preventDefault(); }
   if(e.code==='KeyR') respawn();
   if(e.code==='KeyE') tryZip();
-  if(e.code==='KeyQ') doTrick();
+  if(e.code==='KeyQ'){ if(!tryYank()) doTrick(); }
+  if((e.code==='ShiftLeft'||e.code==='ShiftRight') && S.onGround) doDodge();
   if(e.code==='KeyM') AUD.toggle();
 });
 addEventListener('keyup', e=>{
@@ -584,8 +600,24 @@ const AUD = (()=>{
     o.connect(g); g.connect(master); o.start(t); o.stop(t+.25);
     burst({dur:.15, f0:1200, f1:200, q:.8, vol:.25*k+.05});
   }
+  function punch(){
+    if(!ctx) return;
+    burst({dur:.09, f0:700, f1:120, q:1, vol:.5});
+    const t=ctx.currentTime, o=ctx.createOscillator(), g=ctx.createGain();
+    o.type='sine'; o.frequency.setValueAtTime(160,t); o.frequency.exponentialRampToValueAtTime(60,t+.09);
+    g.gain.setValueAtTime(.5,t); g.gain.exponentialRampToValueAtTime(.001,t+.12);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+.14);
+  }
+  function hurt(){
+    if(!ctx) return;
+    const t=ctx.currentTime, o=ctx.createOscillator(), g=ctx.createGain();
+    o.type='square'; o.frequency.setValueAtTime(300,t); o.frequency.exponentialRampToValueAtTime(90,t+.2);
+    g.gain.setValueAtTime(.2,t); g.gain.exponentialRampToValueAtTime(.001,t+.25);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+.3);
+  }
+  function shot(){ burst({dur:.14, f0:2600, f1:250, q:.7, vol:.4}); }
   function toggle(){ if(!ctx) return; muted=!muted; master.gain.setTargetAtTime(muted?0:.9, ctx.currentTime, .03); flash(muted?'MUTED':'SOUND ON'); }
-  return {start, update, thwip, release, whooshBig, zipSfx, land, toggle};
+  return {start, update, thwip, release, whooshBig, zipSfx, land, toggle, punch, hurt, shot};
 })();
 
 /* ================= SM2-STYLE AUTO ANCHOR ================= */
@@ -807,6 +839,201 @@ function step(dt){
 let lastFlash='';
 function flashOnce(t){ if(lastFlash!==t){ flash(t); lastFlash=t; setTimeout(()=>lastFlash='',1500);} }
 
+/* ================= PROGRESSION ================= */
+const ECON=(()=>{ let d={lv:1,xp:0,cash:0};
+  try{ const s=localStorage.getItem('ws2.progress'); if(s) d=Object.assign(d,JSON.parse(s)); }catch(e){}
+  const el=$('econ');
+  function save(){ try{ localStorage.setItem('ws2.progress', JSON.stringify(d)); }catch(e){} }
+  function refresh(){ el.textContent='LV '+d.lv+' \u00B7 '+d.xp+'/'+(d.lv*100)+' XP \u00B7 $'+d.cash; }
+  function grant(xp,cash){ d.xp+=xp; d.cash+=cash;
+    while(d.xp>=d.lv*100){ d.xp-=d.lv*100; d.lv++; flash('LEVEL UP \u2014 LV '+d.lv,1800); S.hp=100; }
+    refresh(); save(); }
+  refresh();
+  return {grant, get lv(){return d.lv;}};
+})();
+
+/* ================= COMBAT + CRIME DIRECTOR ================= */
+const enemies=[];
+const hpfill=$('hpfill'), objEl=$('objective'), comboEl=$('combo');
+const ETYPES={
+  thug:  {hp:30, dmg:10, speed:9,  range:2.6, cool:1.1, size:1,   col:0x4a5d3a},
+  gunner:{hp:22, dmg:8,  speed:6,  range:58,  cool:2.2, size:.95, col:0x2d4a6b},
+  heavy: {hp:85, dmg:22, speed:4.5,range:3.2, cool:1.8, size:1.45,col:0x5d2d2d},
+};
+function makeEnemyMesh(t){
+  const g=new THREE.Group();
+  const mat=new THREE.MeshStandardMaterial({color:t.col, roughness:.6});
+  const body=new THREE.Mesh(new THREE.CapsuleGeometry(.42*t.size,.8*t.size,4,8), mat);
+  body.position.y=.9*t.size; body.castShadow=true;
+  const head=new THREE.Mesh(new THREE.SphereGeometry(.24*t.size,10,8),
+    new THREE.MeshStandardMaterial({color:0xc9a07a, roughness:.7}));
+  head.position.y=1.75*t.size; head.castShadow=true;
+  g.add(body,head); g.userData.mat=mat; g.userData.baseCol=t.col;
+  return g;
+}
+function spawnEnemy(kind,x,y,z){
+  const t=ETYPES[kind], m=makeEnemyMesh(t); m.position.set(x,y,z); scene.add(m);
+  enemies.push({kind,t,mesh:m,hp:t.hp+ECON.lv*4,x,y,z,vx:0,vz:0,cool:1+Math.random(),
+    stun:0,yank:null,flash:0,alive:true});
+}
+function killEnemy(e){
+  e.alive=false; scene.remove(e.mesh);
+  ECON.grant(15,25); S.combo++; S.comboT=2.4;
+  if(CRIME.active){ CRIME.left--; updateObjective(); if(CRIME.left<=0) CRIME.resolve(); }
+}
+function nearestEnemy(maxD){
+  let best=null,bd=maxD;
+  for(const e of enemies){ if(!e.alive) continue;
+    const d=e.mesh.position.distanceTo(S.pos); if(d<bd){bd=d;best=e;} }
+  return best;
+}
+function doPunch(){
+  if(!started) return false;
+  if(S.atkCool>0) return !!nearestEnemy(7);   // mid-combo: consume click, don't fire a web
+  const e=nearestEnemy(7);
+  if(!e) return false;                       // no target -> caller treats LMB as swing
+  const d=e.mesh.position.distanceTo(S.pos);
+  S.atkCool=.28;
+  if(d>3.2){                                  // lunge (web strike)
+    _v.copy(e.mesh.position).sub(S.pos).normalize();
+    S.vel.copy(_v.multiplyScalar(26)); S.vel.y=Math.max(S.vel.y,4);
+    flash('WEB STRIKE'); AUD.thwip(); return true;
+  }
+  const dmg=12+S.combo*2+(S.onGround?0:6);   // air attacks hit harder
+  e.hp-=dmg; e.flash=.15; e.stun=Math.max(e.stun,.35);
+  _v.copy(e.mesh.position).sub(S.pos).setY(0).normalize();
+  e.vx+=_v.x*14; e.vz+=_v.z*14;
+  S.combo++; S.comboT=2.4; S.camShake=Math.max(S.camShake,.25);
+  AUD.punch();
+  comboEl.textContent='x'+S.combo+' COMBO'; comboEl.classList.add('pop');
+  clearTimeout(doPunch._t); doPunch._t=setTimeout(()=>comboEl.classList.remove('pop'),700);
+  if(e.hp<=0){ killEnemy(e); flash(S.onGround?'KNOCKOUT':'AERIAL FINISHER'); AUD.whooshBig(); }
+  return true;
+}
+function tryYank(){
+  if(!started) return false;
+  const e=nearestEnemy(34);
+  if(!e || S.pos.distanceTo(e.mesh.position)<3) return false;
+  e.yank={to:S.pos.clone().add(new THREE.Vector3(0,1,0)), t:.5};
+  e.stun=1.2; AUD.thwip(); flash('WEB YANK');
+  return true;
+}
+function doDodge(){
+  if(S.dodgeCool>0) return;
+  S.dodgeT=.42; S.dodgeCool=1;
+  const f=_v.set(-Math.sin(cam.h),0,-Math.cos(cam.h));
+  const rgt=_v2.set(f.z,0,-f.x);
+  let dx=0,dz=0;
+  if(keys['KeyA']){dx-=rgt.x;dz-=rgt.z;} if(keys['KeyD']){dx+=rgt.x;dz+=rgt.z;}
+  if(keys['KeyS']){dx-=f.x;dz-=f.z;} else if(!dx&&!dz){dx=f.x;dz=f.z;}
+  const l=Math.hypot(dx,dz)||1;
+  S.vel.x+=dx/l*24; S.vel.z+=dz/l*24; S.vel.y=Math.max(S.vel.y,5);
+  flash('DODGE');
+}
+function dmgPlayer(n){
+  if(S.dodgeT>0){ flash('PERFECT DODGE'); S.combo++; S.comboT=2.4; return; }
+  S.hp-=n; S.camShake=Math.max(S.camShake,.5); AUD.hurt();
+  if(S.hp<=0){ S.hp=100; S.combo=0; respawn(); flash('DOWN! \u2014 RESPAWNED',1800); }
+}
+function updateObjective(){
+  if(CRIME.active){ objEl.style.display='block';
+    objEl.innerHTML='<b>'+CRIME.name+'</b> \u2014 defeat '+CRIME.left+' \u00B7 follow the red beacon'; }
+  else objEl.style.display='none';
+}
+const CRIME=(()=>{
+  const beaconMat=new THREE.MeshBasicMaterial({color:0xff3030, transparent:true, opacity:.4, side:THREE.DoubleSide, depthWrite:false});
+  const beacon=new THREE.Mesh(new THREE.CylinderGeometry(4,4,400,12,1,true), beaconMat);
+  beacon.visible=false; beacon.frustumCulled=false; scene.add(beacon);
+  const NAMES=['ROOFTOP ROBBERY','GANG STASH','ARMED HEIST','TURF WAR'];
+  const C={active:false,left:0,name:'',cool:14,site:new THREE.Vector3(),announced:false,
+    start(){
+      // pick a roof 180..700m away with a decent footprint
+      let b=null;
+      for(let i=0;i<60;i++){
+        const cand=buildings[(Math.random()*buildings.length)|0];
+        const w=cand.max.x-cand.min.x, d=cand.max.z-cand.min.z, h=cand.max.y;
+        const cx=(cand.min.x+cand.max.x)/2, cz=(cand.min.z+cand.max.z)/2;
+        const dist=Math.hypot(cx-S.pos.x, cz-S.pos.z);
+        if(w>16&&d>16&&h>25&&h<175&&dist>180&&dist<700){ b=cand; break; }
+      }
+      if(!b) return;
+      const cx=(b.min.x+b.max.x)/2, cz=(b.min.z+b.max.z)/2, h=b.max.y;
+      C.site.set(cx,h,cz);
+      const n=Math.min(6, 2+ECON.lv);
+      for(let i=0;i<n;i++){
+        const kind=i===0&&ECON.lv>1?'heavy':(Math.random()<.35?'gunner':'thug');
+        const ox=(Math.random()-.5)*(b.max.x-b.min.x-6), oz=(Math.random()-.5)*(b.max.z-b.min.z-6);
+        spawnEnemy(kind, cx+ox, h, cz+oz);
+      }
+      C.left=n; C.name=NAMES[(Math.random()*NAMES.length)|0];
+      C.active=true; C.announced=false;
+      beacon.position.set(cx,h+200,cz); beacon.visible=true;
+      flash('\u26A0 CRIME REPORTED \u2014 '+C.name,2200); updateObjective();
+    },
+    resolve(){
+      C.active=false; beacon.visible=false; C.cool=16+Math.random()*14;
+      const xp=40+ECON.lv*20, cash=100+ECON.lv*50;
+      ECON.grant(xp,cash);
+      flash('\u2713 CRIME STOPPED  +'+xp+' XP  +$'+cash,2400); updateObjective();
+    },
+    update(dt){
+      if(C.active){
+        beaconMat.opacity=.28+Math.sin(performance.now()*.004)*.14;
+        if(!C.announced && Math.hypot(C.site.x-S.pos.x,C.site.z-S.pos.z)<45 && Math.abs(S.pos.y-C.site.y)<20){
+          C.announced=true; flash('CRIME SCENE \u2014 TAKE THEM DOWN',1800);
+        }
+      } else if(started){
+        C.cool-=dt;
+        if(C.cool<=0) C.start();
+      }
+    }};
+  return C;
+})();
+function updateCombat(dt){
+  if(S.atkCool>0)S.atkCool-=dt;
+  if(S.dodgeT>0)S.dodgeT-=dt;
+  if(S.dodgeCool>0)S.dodgeCool-=dt;
+  if(S.comboT>0){ S.comboT-=dt; if(S.comboT<=0){S.combo=0; comboEl.classList.remove('pop');} }
+  S.hp=Math.min(100,S.hp+dt*2.5);            // slow regen
+  hpfill.style.width=Math.max(0,S.hp)+'%';
+  hpfill.style.background=S.hp>50?'#7ff0a0':S.hp>25?'#ffd050':'#ff6b6b';
+  CRIME.update(dt);
+  for(const e of enemies){
+    if(!e.alive) continue;
+    const m=e.mesh, t=e.t;
+    if(e.flash>0){ e.flash-=dt; m.userData.mat.color.setHex(e.flash>0?0xffffff:m.userData.baseCol); }
+    if(e.yank){                               // being pulled by web
+      e.yank.t-=dt;
+      m.position.lerp(S.pos, Math.min(1,dt*9));
+      if(e.yank.t<=0||m.position.distanceTo(S.pos)<2.2) e.yank=null;
+      continue;
+    }
+    if(e.stun>0){ e.stun-=dt; }
+    // knockback decay + keep on roof
+    m.position.x+=e.vx*dt; m.position.z+=e.vz*dt;
+    e.vx*=Math.max(0,1-dt*5); e.vz*=Math.max(0,1-dt*5);
+    if(m.position.y>e.y) m.position.y=Math.max(e.y, m.position.y-30*dt);
+    const dx=S.pos.x-m.position.x, dz=S.pos.z-m.position.z;
+    const hd=Math.hypot(dx,dz), vd=Math.abs(S.pos.y-m.position.y);
+    const engaged=hd<70&&vd<26;
+    m.lookAt(S.pos.x, m.position.y, S.pos.z);
+    if(!engaged||e.stun>0){ e.cool=Math.max(e.cool,.4); continue; }
+    if(e.kind==='gunner'){
+      if(hd>16){ m.position.x+=dx/hd*t.speed*dt; m.position.z+=dz/hd*t.speed*dt; }
+      e.cool-=dt;
+      if(e.cool<=0 && hd<t.range){ e.cool=t.cool; AUD.shot();
+        // moving fast = hard to hit
+        if(Math.random()>Math.min(.75,S.vel.length()/70)) dmgPlayer(t.dmg);
+        else flash('MISSED!');
+      }
+    } else {
+      if(hd>t.range*.9){ m.position.x+=dx/hd*t.speed*dt; m.position.z+=dz/hd*t.speed*dt; }
+      e.cool-=dt;
+      if(e.cool<=0 && hd<t.range && vd<3){ e.cool=t.cool; dmgPlayer(t.dmg); }
+    }
+  }
+}
+
 /* ================= VISUALS ================= */
 const heroQuatTarget=new THREE.Quaternion();
 const eul=new THREE.Euler();
@@ -965,6 +1192,7 @@ function loop(now){
   if(started){
     const SUB=3;
     for(let i=0;i<SUB;i++) step(dt/SUB);
+    updateCombat(dt);
     AUD.update(S.vel.length(), S.pos.y);
     updateVisuals(dt, now);
   } else {
