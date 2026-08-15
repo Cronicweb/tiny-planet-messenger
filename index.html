@@ -17,12 +17,18 @@
         font-size:11.5px;line-height:2;text-shadow:0 1px 5px rgba(0,0,0,.6);opacity:.9}
   #keys kbd{background:rgba(255,255,255,.92);color:#111;border-radius:3px;padding:1px 7px;font-size:10.5px;
             font-weight:700;margin-right:6px;box-shadow:0 1px 2px rgba(0,0,0,.4)}
-  #speedo{position:fixed;bottom:26px;right:30px;z-index:10;color:#fff;text-align:right;user-select:none;
-          pointer-events:none;text-shadow:0 1px 6px rgba(0,0,0,.6)}
-  #speedo .num{font-size:44px;font-weight:200;letter-spacing:1px;line-height:1}
-  #speedo .unit{font-size:11px;letter-spacing:3px;opacity:.85}
-  #speedo .bar{width:150px;height:3px;background:rgba(255,255,255,.28);margin-top:8px;margin-left:auto}
-  #speedo .fill{height:100%;width:0%;background:#fff}
+  #speedo{position:fixed;bottom:26px;right:30px;z-index:10;color:#fff;text-align:center;user-select:none;
+          pointer-events:none}
+  #speedo .ring{position:relative;width:114px;height:114px;filter:drop-shadow(0 0 7px rgba(80,160,255,.35))}
+  #speedo svg{width:100%;height:100%;transform:rotate(-90deg)}
+  #speedo circle{fill:none;stroke-width:5;stroke-linecap:round}
+  #speedo .track{stroke:rgba(255,255,255,.14)}
+  #speedo .prog{stroke:#7fd4ff;stroke-dasharray:276.5;stroke-dashoffset:276.5}
+  #speedo .inner{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+                 justify-content:center;text-shadow:0 1px 6px rgba(0,0,0,.6)}
+  #speedo .num{font-size:31px;font-weight:200;letter-spacing:1px;line-height:1}
+  #speedo .unit{font-size:9px;letter-spacing:3px;opacity:.9;color:#7fd4ff;margin-top:3px}
+  #streaks{position:fixed;inset:0;z-index:6;pointer-events:none}
   #action{position:fixed;top:56%;left:50%;transform:translateX(-50%);z-index:10;color:#fff;font-size:13px;
           letter-spacing:3px;font-weight:600;text-shadow:0 1px 8px rgba(0,0,0,.7);user-select:none;
           pointer-events:none;opacity:0;transition:opacity .25s}
@@ -50,13 +56,14 @@
 </head>
 <body>
 <div id="vignette"></div>
+<canvas id="streaks"></canvas>
 <div id="hud"><div class="title">WEB <b>SLINGER</b> // FREE ROAM</div></div>
 <div id="keys">
   <kbd>SPACE</kbd> hold: swing · release: launch<br/>
-  <kbd>E</kbd> zip to point &nbsp; <kbd>SHIFT</kbd> dive &nbsp; <kbd>W A S D</kbd> steer<br/>
+  <kbd>E</kbd> zip to point &nbsp; <kbd>SHIFT</kbd> dive &nbsp; <kbd>F</kbd> web wings &nbsp; <kbd>W A S D</kbd> steer<br/>
   <kbd>Q</kbd> air trick &nbsp; <kbd>R</kbd> respawn &nbsp; <kbd>M</kbd> mute &nbsp; <kbd>MOUSE</kbd> camera
 </div>
-<div id="speedo"><div class="num">0</div><div class="unit">MPH</div><div class="bar"><div class="fill"></div></div></div>
+<div id="speedo"><div class="ring"><svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="44"/><circle class="prog" cx="50" cy="50" r="44"/></svg><div class="inner"><div class="num">0</div><div class="unit">MPH</div></div></div></div>
 <div id="action"></div>
 <div id="reticle"><div class="c"></div></div>
 <div id="zipmark">ZIP</div>
@@ -150,6 +157,12 @@ const camera = new THREE.PerspectiveCamera(68, innerWidth/innerHeight, .1, 4000)
   sunBall.position.set(-1300, 400, -840);
   scene.add(sunBall);
 }
+/* image-based lighting: bake the sky into a PMREM env map -> real reflections on glass */
+{
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(scene, 0, .1, 3000).texture;
+  pmrem.dispose();
+}
 const hemi = new THREE.HemisphereLight(0xcfe4ff, 0x8a6a4a, .75); scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffe0b0, 2.0);
 sun.position.set(-320, 420, -210);
@@ -215,8 +228,8 @@ function buildTower(x,z,foot,heightBase){
     remaining -= h;
     const tx = tex.clone(); tx.needsUpdate = true;
     tx.repeat.set(Math.max(1,Math.round(w/10)), Math.max(1,Math.round(h/12)));
-    const mat = new THREE.MeshStandardMaterial({ map:tx, roughness:.65, metalness:.25,
-      emissive:0xffffff, emissiveMap:tx, emissiveIntensity:.08 });
+    const mat = new THREE.MeshStandardMaterial({ map:tx, roughness:.38, metalness:.55,
+      envMapIntensity:1.1, emissive:0xffffff, emissiveMap:tx, emissiveIntensity:.08 });
     box(w, h, d, x, y+h/2, z, mat);
     registerAABB(x,z,w,d,y+h);
     registerAnchors(x,z,w,d,y+h);
@@ -349,6 +362,16 @@ const heroParts = {};
   Object.assign(heroParts,{armL,armR,legL,legR,torso,head});
 }
 
+/* web-wings membranes (SM2 glide) */
+const wingMat = new THREE.MeshBasicMaterial({color:0xdfe8ff, transparent:true, opacity:0, side:THREE.DoubleSide, depthWrite:false});
+for(const s of [-1,1]){
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    s*.15,.62,0,  s*1.3,-.1,-.12,  s*.3,-.7,0 ]),3));
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, wingMat); m.frustumCulled=false; hero.add(m);
+}
+
 /* web line — tapered, slightly saggy */
 const WEB_SEGS = 12;
 const webGeo = new THREE.BufferGeometry();
@@ -374,7 +397,9 @@ const S = {
   diving:false, trickTimer:0, trickSpin:0,
   swingSide:1,            // alternate hands like SM
   camShake:0,
+  gliding:false, glideBank:0,
 };
+const camFX = { prevHeading:0, tilt:0 };
 const GRAV = 30, MAXSPD = 92;
 const cam = { h:0, v:-.12, dist:11 };
 const keys = {};
@@ -382,8 +407,13 @@ let started = false, swingHeld = false;
 
 const $ = id => document.getElementById(id);
 const overlay=$('overlay'), speedNum=document.querySelector('#speedo .num'),
-      speedFillEl=document.querySelector('#speedo .fill'), actionEl=$('action'),
+      speedRing=document.querySelector('#speedo .prog'), actionEl=$('action'),
       zipmark=$('zipmark'), trickEl=$('trick'), trickName=$('trickName');
+
+/* radial screen-edge speed streaks */
+const stC=$('streaks'), stX=stC.getContext('2d');
+function sizeStreaks(){ stC.width=innerWidth; stC.height=innerHeight; }
+sizeStreaks();
 
 window.__startGame = ()=>{
   started = true;
@@ -416,6 +446,7 @@ addEventListener('keyup', e=>{
 addEventListener('resize', ()=>{
   camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth,innerHeight);
+  sizeStreaks();
 });
 function respawn(){ S.pos.set(0,120,300); S.vel.set(0,0,-22); detach(); S.zipping=false; flash('RESPAWNED'); }
 function flash(t, ms=1100){ actionEl.textContent=t; actionEl.style.opacity=1;
@@ -425,6 +456,7 @@ function flash(t, ms=1100){ actionEl.textContent=t; actionEl.style.opacity=1;
 const AUD = (()=>{
   let ctx=null, master=null, on=false, muted=false, sfxNoise=null;
   let windGain=null, windFilt=null, whistleGain=null, whistleFilt=null, ambGain=null;
+  let musGain=null, soarGain=null;
   function noiseBuf(sec, brown){
     const sr=ctx.sampleRate, n=(sec*sr)|0, b=ctx.createBuffer(1,n,sr), d=b.getChannelData(0);
     let lp=0;
@@ -483,6 +515,19 @@ const AUD = (()=>{
     whistleFilt=ctx.createBiquadFilter(); whistleFilt.type='bandpass'; whistleFilt.frequency.value=1800; whistleFilt.Q.value=6;
     whistleGain=ctx.createGain(); whistleGain.gain.value=0;
     wn2.connect(whistleFilt); whistleFilt.connect(whistleGain); whistleGain.connect(master); wn2.start();
+    /* adaptive music: quiet ambient pad + soaring layer that swells with altitude/speed */
+    musGain=ctx.createGain(); musGain.gain.value=.045; musGain.connect(master);
+    soarGain=ctx.createGain(); soarGain.gain.value=0;  soarGain.connect(master);
+    const mkPad=(freqs,type,dest)=>{ for(const fq of freqs){
+      const o=ctx.createOscillator(); o.type=type; o.frequency.value=fq; o.detune.value=Math.random()*7-3.5;
+      const g=ctx.createGain(); g.gain.value=1/freqs.length;
+      const lfo=ctx.createOscillator(), lg=ctx.createGain();
+      lfo.frequency.value=.06+Math.random()*.05; lg.gain.value=.25/freqs.length;
+      lfo.connect(lg); lg.connect(g.gain); lfo.start();
+      o.connect(g); g.connect(dest); o.start();
+    }};
+    mkPad([110,164.81,196],'triangle',musGain);        // Am-ish low pad
+    mkPad([220,329.63,392,493.88],'sine',soarGain);    // bright soaring layer
   }
   function update(spd, height){
     if(!ctx) return;
@@ -495,6 +540,10 @@ const AUD = (()=>{
     whistleFilt.frequency.setTargetAtTime(1200+k*2600, t, .12);
     /* street gets louder near the ground */
     ambGain.gain.setTargetAtTime(.04 + .10*Math.max(0,1-height/120), t, .3);
+    /* music swells during high-altitude, high-speed chains */
+    const soar=Math.min(1, Math.max(0,(height-55)/110)*.6 + k*.55);
+    soarGain.gain.setTargetAtTime(soar*.05, t, .9);
+    musGain.gain.setTargetAtTime(.028+(1-soar)*.022, t, .9);
   }
   function thwip(){
     if(!ctx) return;
@@ -676,6 +725,25 @@ function step(dt){
     S.vel.addScaledVector(f, 30*dt);
   }
 
+  /* web wings: hold F to glide (SM2) — lift from airspeed, banking with A/D, street draft */
+  S.gliding = !!keys['KeyF'] && !S.onGround && !S.attached && !S.zipping && !S.diving;
+  if(S.gliding){
+    const hs=Math.hypot(S.vel.x,S.vel.z);
+    if(hs>3){
+      const fdir=_v.set(S.vel.x,0,S.vel.z).divideScalar(hs);
+      S.vel.y += Math.min(GRAV*.88, hs*.6)*dt;                 // lift ~ airspeed
+      if(S.vel.y<0) S.vel.addScaledVector(fdir, -S.vel.y*1.5*dt); // descent -> forward speed
+      const bank=(keys['KeyA']?1:0)-(keys['KeyD']?1:0);
+      S.glideBank += (bank - S.glideBank)*Math.min(1,dt*4);
+      if(bank!==0){
+        const yaw=Math.atan2(S.vel.x,S.vel.z)+bank*1.5*dt;
+        S.vel.x=Math.sin(yaw)*hs; S.vel.z=Math.cos(yaw)*hs;
+      }
+      if(S.pos.y<28) S.vel.y += 9*dt;                          // wind-tunnel draft over streets
+      flashOnce('WEB WINGS');
+    }
+  } else S.glideBank *= Math.max(0,1-dt*4);
+
   /* steering */
   const f=_v.set(-Math.sin(cam.h),0,-Math.cos(cam.h));
   const rgt=_v2.set(f.z,0,-f.x);
@@ -740,6 +808,7 @@ function updateVisuals(dt, now){
   if(hv.lengthSq()>2) targetYaw=Math.atan2(hv.x,hv.z);
   let pitch=0, roll=0;
   if(S.attached){ pitch=-.85; roll=Math.sin(now*.004)*.06; }
+  else if(S.gliding){ pitch=.4; roll=-S.glideBank*.85; }
   else if(S.diving) pitch=1.25;
   else if(S.zipping) pitch=-1.3;
   else pitch=THREE.MathUtils.clamp(-S.vel.y*.022,-.6,.85);
@@ -757,6 +826,10 @@ function updateVisuals(dt, now){
     freeArm.rotation.z += ((S.swingSide>0?-.9:.9)-freeArm.rotation.z)*dt*6;
     legL.rotation.x += (.55-legL.rotation.x)*dt*6;
     legR.rotation.x += (-.25-legR.rotation.x)*dt*6;
+  } else if(S.gliding){
+    armL.rotation.x += (-.15-armL.rotation.x)*dt*8; armR.rotation.x += (-.15-armR.rotation.x)*dt*8;
+    armL.rotation.z += (1.25-armL.rotation.z)*dt*8; armR.rotation.z += (-1.25-armR.rotation.z)*dt*8;
+    legL.rotation.x*=.85; legR.rotation.x*=.85;
   } else if(S.diving||S.zipping){
     for(const a of [armL,armR]) a.rotation.x += ((S.diving?2.6:-2.9)-a.rotation.x)*dt*8;
     legL.rotation.x*= .85; legR.rotation.x*=.85;
@@ -768,6 +841,10 @@ function updateVisuals(dt, now){
   } else {
     for(const p of [armL,armR,legL,legR]){ p.rotation.x*=.92; p.rotation.z*=.92; }
   }
+  /* wings fade in/out; head tracks turn direction */
+  wingMat.opacity += ((S.gliding?.5:0)-wingMat.opacity)*Math.min(1,dt*8);
+  const headT = S.attached ? (S.swingSide>0?.45:-.45) : S.gliding ? S.glideBank*.5 : 0;
+  heroParts.head.rotation.y += (headT-heroParts.head.rotation.y)*Math.min(1,dt*5);
 
   /* web rope with sag */
   if(S.attached){
@@ -810,15 +887,49 @@ function updateVisuals(dt, now){
     camera.position.y+=(Math.random()-.5)*S.camShake;
     S.camShake*=Math.pow(.02,dt);
   }
+  /* continuous micro-shake at terminal velocity */
+  if(spd>MAXSPD*.85){
+    const s=(spd/MAXSPD-.85)*1.6;
+    camera.position.x+=(Math.random()-.5)*s; camera.position.y+=(Math.random()-.5)*s;
+  }
   const look=_v3.set(S.pos.x,S.pos.y+1.4,S.pos.z).addScaledVector(S.vel,.06);
   camera.lookAt(look);
-  const targetFov=68+Math.min(26,spd*.3)+(S.diving?6:0);
+  /* dutch tilt: roll into turns + glide banking (G-force feel) */
+  {
+    const heading=Math.atan2(S.vel.x,S.vel.z);
+    let dh=heading-camFX.prevHeading;
+    if(dh>Math.PI)dh-=Math.PI*2; if(dh<-Math.PI)dh+=Math.PI*2;
+    camFX.prevHeading=heading;
+    const yawRate = spd>10 ? dh/Math.max(dt,.001) : 0;
+    const want = THREE.MathUtils.clamp(-yawRate*.055,-.09,.09) + (S.gliding?-S.glideBank*.07:0);
+    camFX.tilt += (want-camFX.tilt)*Math.min(1,dt*4);
+    camera.rotation.z += camFX.tilt;
+  }
+  const targetFov=68+Math.min(26,spd*.3)+(S.diving?6:0)+(S.gliding?4:0);
   camera.fov+=(targetFov-camera.fov)*Math.min(1,dt*5);
   camera.updateProjectionMatrix();
 
-  /* HUD */
+  /* HUD: neon circular velocity gauge */
   speedNum.textContent=Math.round(spd*1.6);   // fake mph conversion for flavor
-  speedFillEl.style.width=Math.min(100,spd/MAXSPD*100)+'%';
+  const frac=Math.min(1,spd/MAXSPD);
+  speedRing.style.strokeDashoffset=(276.5*(1-frac)).toFixed(1);
+  speedRing.style.stroke = frac>.8 ? '#ff4d4d' : '#7fd4ff';
+
+  /* radial screen-edge speed streaks */
+  stX.clearRect(0,0,stC.width,stC.height);
+  const sk=Math.max(0,(spd-46)/(MAXSPD-46));
+  if(sk>.03){
+    const cx2=stC.width/2, cy2=stC.height/2, R=Math.hypot(cx2,cy2);
+    stX.strokeStyle='rgba(255,255,255,'+(sk*.3).toFixed(3)+')';
+    stX.lineWidth=1.5;
+    stX.beginPath();
+    for(let i=0;i<26;i++){
+      const a=rngFrame()*Math.PI*2, r0=(0.55+rngFrame()*.32)*R, r1=r0+30+sk*170;
+      stX.moveTo(cx2+Math.cos(a)*r0, cy2+Math.sin(a)*r0);
+      stX.lineTo(cx2+Math.cos(a)*r1, cy2+Math.sin(a)*r1);
+    }
+    stX.stroke();
+  }
 
   /* zip marker projection */
   zipCandidate=findZipTarget();
