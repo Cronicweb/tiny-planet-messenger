@@ -1,164 +1,742 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>Tiny Planet Messenger — New York City</title>
-<link rel="stylesheet" href="style.css" />
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>WEB SLINGER 2 — Swinging Prototype</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#87b8e8;font-family:'Segoe UI',system-ui,sans-serif}
+  canvas{display:block}
+  /* ---- SM2-style minimal white HUD ---- */
+  #hud{position:fixed;top:22px;left:26px;color:#fff;z-index:10;user-select:none;pointer-events:none;
+       text-shadow:0 1px 6px rgba(0,0,0,.55)}
+  #hud .title{font-size:15px;font-weight:600;letter-spacing:4px;opacity:.95}
+  #hud .title b{color:#ff4d4d}
+  #keys{position:fixed;bottom:22px;left:26px;color:#fff;z-index:10;user-select:none;pointer-events:none;
+        font-size:11.5px;line-height:2;text-shadow:0 1px 5px rgba(0,0,0,.6);opacity:.9}
+  #keys kbd{background:rgba(255,255,255,.92);color:#111;border-radius:3px;padding:1px 7px;font-size:10.5px;
+            font-weight:700;margin-right:6px;box-shadow:0 1px 2px rgba(0,0,0,.4)}
+  #speedo{position:fixed;bottom:26px;right:30px;z-index:10;color:#fff;text-align:right;user-select:none;
+          pointer-events:none;text-shadow:0 1px 6px rgba(0,0,0,.6)}
+  #speedo .num{font-size:44px;font-weight:200;letter-spacing:1px;line-height:1}
+  #speedo .unit{font-size:11px;letter-spacing:3px;opacity:.85}
+  #speedo .bar{width:150px;height:3px;background:rgba(255,255,255,.28);margin-top:8px;margin-left:auto}
+  #speedo .fill{height:100%;width:0%;background:#fff}
+  #action{position:fixed;top:56%;left:50%;transform:translateX(-50%);z-index:10;color:#fff;font-size:13px;
+          letter-spacing:3px;font-weight:600;text-shadow:0 1px 8px rgba(0,0,0,.7);user-select:none;
+          pointer-events:none;opacity:0;transition:opacity .25s}
+  #reticle{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9;pointer-events:none}
+  #reticle .c{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.9);box-shadow:0 0 5px rgba(0,0,0,.7)}
+  #zipmark{position:fixed;z-index:9;pointer-events:none;width:34px;height:34px;margin:-17px 0 0 -17px;
+           border:2px solid #fff;border-radius:50%;box-shadow:0 0 10px rgba(0,0,0,.5),inset 0 0 8px rgba(255,255,255,.4);
+           display:none;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:800;letter-spacing:1px}
+  #vignette{position:fixed;inset:0;z-index:5;pointer-events:none;
+            background:radial-gradient(ellipse at center,transparent 62%,rgba(0,0,20,.35) 100%)}
+  #overlay{position:fixed;inset:0;z-index:30;display:flex;align-items:flex-end;cursor:pointer;
+           background:linear-gradient(to top,rgba(8,10,25,.92) 0%,rgba(8,10,25,.25) 55%,transparent 100%)}
+  #overlay .card{color:#fff;padding:56px 64px;max-width:760px}
+  #overlay h1{font-size:64px;font-weight:800;letter-spacing:2px;line-height:.95;font-style:italic}
+  #overlay h1 .r{color:#ff4d4d}#overlay h1 .n{color:#fff;-webkit-text-stroke:1.5px #fff;color:transparent}
+  #overlay p{margin-top:18px;font-size:14px;line-height:1.9;opacity:.92;max-width:560px}
+  #overlay .go{margin-top:26px;display:inline-block;background:#fff;color:#0b0e20;font-weight:800;
+               letter-spacing:3px;padding:13px 42px;font-size:13px}
+  #trick{position:fixed;top:32%;right:8%;z-index:10;color:#fff;font-size:26px;font-weight:800;font-style:italic;
+         letter-spacing:2px;text-shadow:0 2px 10px rgba(0,0,0,.6);opacity:0;transform:rotate(-4deg);
+         transition:opacity .3s,transform .3s;pointer-events:none;user-select:none}
+  #trick.pop{opacity:1;transform:rotate(-4deg) scale(1.08)}
+  #trick small{display:block;font-size:12px;letter-spacing:4px;color:#7fd4ff;font-style:normal}
+</style>
 </head>
 <body>
-<!-- Loading screen -->
-<div id="loader">
-  <div class="planet-spin"></div>
-  <h1>Tiny New York</h1>
-  <p>Paving the streets and lighting the windows…</p>
-</div>
-
-<!-- HUD -->
-<div id="hud" class="hidden">
-  <!-- Top bar -->
-  <div id="topbar">
-    <div class="pill" id="levelPill">⭐ Lvl <span id="levelCount">1</span></div>
-    <div class="pill" id="onlinePill">🌐 <span id="onlineText">Exploring solo</span></div>
-    <div class="pill" id="gemPill">🪙 <span id="gemCount">0</span></div>
-    <div class="pill" id="regionPill">📍 <span id="regionName">Midtown</span></div>
-    <div class="pill" id="weatherPill">☀️ <span id="weatherName">Clear</span></div>
-    <div class="pill" id="netPill">🔌 <span id="netStatus">Solo</span></div>
-  </div>
-
-  <!-- Quest panel -->
-  <div id="questPanel">
-    <div class="quest-title">📬 Current Delivery</div>
-    <div id="questText">Walk up to a glowing local to pick up a delivery.</div>
-    <div id="questHint"></div>
-  </div>
-
-  <!-- Dialogue box -->
-  <div id="dialogue" class="hidden">
-    <div class="dlg-avatar" id="dlgAvatar">🙂</div>
-    <div class="dlg-body">
-      <div class="dlg-name" id="dlgName">NPC</div>
-      <div class="dlg-text" id="dlgText"></div>
-      <button id="dlgAction">Accept ▶</button>
-    </div>
-  </div>
-
-  <!-- Emoji bar -->
-  <div id="emojiBar"></div>
-
-  <!-- Mobile joystick -->
-  <div id="joystick"><div id="stick"></div></div>
-
-  <!-- Gameplay HUD additions -->
-  <div id="hpBarContainer"><div id="hpBar"></div><div id="hpText">100 / 100 HP</div></div>
-  <div id="crosshair"></div>
-
-  <!-- Interact button (mobile) -->
-  <button id="interactBtn">✋</button>
-
-  <!-- Toast -->
-  <div id="toast"></div>
-
-  <!-- Global Chat Log -->
-  <div id="chatLog"></div>
-
-  <!-- Chat Input -->
-  <div id="chatInputBox" class="hidden">
-    <input type="text" id="chatInput" placeholder="Press Enter to chat..." maxlength="40"/>
-  </div>
-
-  <!-- Side buttons -->
-  <button id="journalBtn" title="Journal (J)">📖</button>
-  <button id="muteBtn" title="Sound">🔊</button>
-
-  <!-- Journal -->
-  <div id="journal" class="hidden">
-    <h2>📖 Courier's Notebook</h2>
-    <div class="jrow"><span>⭐ Level</span><b id="jLevel">1</b></div>
-    <div class="jrow"><span>🏙️ Block Level</span><b id="jVillageLevel">1</b></div>
-    <div class="jrow"><span>🏢 Buildings Raised</span><b id="jBuildings">0</b></div>
-    <div class="jrow"><span>✨ XP</span><b id="jXP">0 / 100</b></div>
-    <div class="jrow"><span>📦 Deliveries completed</span><b id="jDeliveries">0</b></div>
-    <div class="jrow"><span>🪙 Subway tokens</span><b id="jGems">0 / 0</b></div>
-    <div class="jrow"><span>🗺️ Neighbourhoods visited</span><b id="jRegions">0 / 6</b></div>
-    <div class="jblock"><div class="jhead">Neighbourhoods</div><div id="jRegionList"></div></div>
-    <div class="jblock"><div class="jhead">✦ Secrets discovered</div><div id="jSecrets"><i>None yet — try the side streets…</i></div></div>
-    <button id="closeJournal">Close</button>
-  </div>
-
-  <!-- Build Menu -->
-  <div id="buildMenu" class="hidden">
-    <h2>🔨 Build the Block</h2>
-    <div class="build-items">
-      <button class="build-btn" onclick="buildProp('House', 10)">🏢 Brownstone (10 🪙)</button>
-      <button class="build-btn" onclick="buildProp('Tree', 5)">🌳 Street Tree (5 🪙)</button>
-      <button class="build-btn" onclick="buildProp('Mailbox', 15)">📬 Mailbox (15 🪙)</button>
-    </div>
-    <button onclick="document.getElementById('buildMenu').classList.add('hidden')">Cancel</button>
-  </div>
-  <button id="openBuildBtn" title="Build (B)">🔨</button>
-
-  <!-- Help -->
-  <button id="helpBtn" title="Controls">？</button>
-  <div id="helpCard" class="hidden">
-    <h3>How to play</h3>
-    <ul>
-      <li><b>Move:</b> WASD / Arrow keys (or joystick on mobile)</li>
-      <li><b>Camera:</b> drag mouse / swipe</li>
-      <li><b>Interact:</b> walk close to a glowing local, press <b>E</b> / ✋</li>
-      <li><b>Emote:</b> click an emoji, or press <b>1–6</b></li>
-      <li><b>Goal:</b> run deliveries across the five boroughs, collect 🪙, and see every neighbourhood!</li>
-    </ul>
-    <button id="closeHelp">Got it</button>
-  </div>
-</div>
-
-<!-- Character customization -->
-<div id="customizer">
-  <div class="cust-card">
-    <h1>Create your courier</h1>
-    <p class="hook">Run packages through Midtown, Harlem and Brooklyn — and keep the city moving.</p>
-    <div id="charPreview"></div>
-    <div class="cust-row">
-      <span>Body color</span>
-      <div class="swatches" id="bodySwatches"></div>
-    </div>
-    <div class="cust-row">
-      <span>Hat color</span>
-      <div class="swatches" id="hatSwatches"></div>
-    </div>
-    <div class="cust-row">
-      <span>Name</span>
-      <input id="nameInput" maxlength="12" placeholder="Pip" value="Pip" />
-    </div>
-    <button id="startBtn">Hit the streets ✦</button>
-  </div>
-</div>
-
-<!-- Weather overlay layers -->
-<div id="weatherFX"></div>
-<div id="flash"></div>
-
-<!-- Art-direction overlays: watercolor grade + vignette + film grain -->
-<div id="grade"></div>
 <div id="vignette"></div>
-<div id="grain"></div>
-
-<!-- Fatal error overlay (instead of a silent black screen) -->
-<div id="fatal" class="hidden">
-  <div class="fatal-card">
-    <div class="fatal-emoji">😿</div>
-    <h2 id="fatalTitle">Something went wrong</h2>
-    <p id="fatalDetail"></p>
-    <p class="fatal-tip">Tip: this game needs <b>WebGL</b>. Open it in a normal
-    Chrome/Firefox/Edge/Safari window, enable hardware acceleration, and reload.
-    On mobile, use the latest Chrome or Safari.</p>
-    <button onclick="location.reload()">Reload</button>
+<div id="hud"><div class="title">WEB <b>SLINGER</b> // FREE ROAM</div></div>
+<div id="keys">
+  <kbd>SPACE</kbd> hold: swing · release: launch<br/>
+  <kbd>E</kbd> zip to point &nbsp; <kbd>SHIFT</kbd> dive &nbsp; <kbd>W A S D</kbd> steer<br/>
+  <kbd>Q</kbd> air trick &nbsp; <kbd>R</kbd> respawn &nbsp; <kbd>MOUSE</kbd> camera
+</div>
+<div id="speedo"><div class="num">0</div><div class="unit">MPH</div><div class="bar"><div class="fill"></div></div></div>
+<div id="action"></div>
+<div id="reticle"><div class="c"></div></div>
+<div id="zipmark">ZIP</div>
+<div id="trick"><small>STYLE</small><span id="trickName">SWAN DIVE</span></div>
+<div id="overlay">
+  <div class="card">
+    <h1><span class="n">WEB</span> <span class="r">SLINGER</span> 2</h1>
+    <p>
+      A swinging sandbox inspired by the modern web-head games. Webs attach <b>automatically</b> to the
+      best anchor above you — just hold <b>SPACE</b>, carve with <b>A/D</b>, release at the peak of the arc
+      and chain into the next swing. <b>SHIFT</b>-dive to trade height for raw speed, then <b>E</b> point-launch
+      off rooftops. Momentum is everything.
+    </p>
+    <div class="go">▶ &nbsp;CLICK TO SWING</div>
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="game.js"></script>
-<script src="modules.js"></script>
+<script>
+/* Instant overlay feedback — works even before the engine loads */
+(function(){
+  var go = document.querySelector('#overlay .go');
+  go.textContent = 'LOADING ENGINE…';
+  document.getElementById('overlay').addEventListener('click', function(){
+    if (window.__startGame) window.__startGame();
+    else go.textContent = 'LOADING… PLEASE WAIT';
+  });
+  window.addEventListener('error', function(e){
+    if (!window.__gameReady){
+      go.textContent = 'LOAD ERROR: ' + (e.message || 'script failed');
+      go.style.background = '#ff6b6b';
+    }
+  });
+})();
+</script>
+<script type="module">
+/* Load Three.js with multi-CDN fallback (no importmap, no addons needed) */
+const goBtn = document.querySelector('#overlay .go');
+let THREE = null;
+for (const url of [
+  'https://unpkg.com/three@0.160.0/build/three.module.js',
+  'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js',
+  'https://esm.sh/three@0.160.0',
+]) {
+  try { THREE = await import(url); if (THREE && THREE.WebGLRenderer) break; } catch (e) { console.warn('CDN failed:', url, e); }
+}
+if (!THREE || !THREE.WebGLRenderer) {
+  goBtn.textContent = 'FAILED TO LOAD 3D ENGINE — CHECK INTERNET & RELOAD';
+  goBtn.style.background = '#ff6b6b';
+  throw new Error('Three.js could not be loaded from any CDN');
+}
+
+/* ================= RENDERER / SCENE ================= */
+const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xbfd8ee, 260, 1600);
+
+const camera = new THREE.PerspectiveCamera(68, innerWidth/innerHeight, .1, 4000);
+
+/* ================= GOLDEN-HOUR SKY ================= */
+{
+  const skyGeo = new THREE.SphereGeometry(2500, 24, 16);
+  const skyMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide, depthWrite:false,
+    uniforms:{},
+    vertexShader:`varying vec3 vP; void main(){vP=position; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
+    fragmentShader:`
+      varying vec3 vP;
+      void main(){
+        float h = normalize(vP).y;
+        vec3 top = vec3(.25,.48,.85);
+        vec3 mid = vec3(.65,.78,.92);
+        vec3 low = vec3(1.0,.72,.45);
+        vec3 c = h > .25 ? mix(mid, top, smoothstep(.25,.9,h)) : mix(low, mid, smoothstep(-.05,.25,h));
+        // sun glow toward the west
+        vec3 sd = normalize(vec3(-.55,.16,-.35));
+        float g = pow(max(dot(normalize(vP), sd), 0.), 18.);
+        c += vec3(1.,.75,.4)*g*1.6;
+        gl_FragColor = vec4(c,1.);
+      }`
+  });
+  scene.add(new THREE.Mesh(skyGeo, skyMat));
+  const sunBall = new THREE.Mesh(new THREE.SphereGeometry(38,16,16), new THREE.MeshBasicMaterial({color:0xfff1d0}));
+  sunBall.position.set(-1300, 400, -840);
+  scene.add(sunBall);
+}
+const hemi = new THREE.HemisphereLight(0xcfe4ff, 0x8a6a4a, .75); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffe0b0, 2.0);
+sun.position.set(-320, 420, -210);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048,2048);
+Object.assign(sun.shadow.camera, {left:-300,right:300,top:300,bottom:-300,far:1400});
+sun.shadow.camera.updateProjectionMatrix();
+sun.shadow.bias = -0.0004;
+scene.add(sun);
+
+/* ================= CITY ================= */
+const rng = (a=>()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;})(9137);
+const buildings = [];          // AABB list {min,max}
+const anchorPoints = [];       // good web anchor points (roof edges/corners)
+const cityGroup = new THREE.Group(); scene.add(cityGroup);
+
+const BLOCK = 92, ROAD = 26, GRID = 9;   // manhattan-ish grid
+const facadeTexCache = [];
+function makeFacadeTexture(tint){
+  const c = document.createElement('canvas'); c.width=128; c.height=256;
+  const x = c.getContext('2d');
+  x.fillStyle = tint; x.fillRect(0,0,128,256);
+  x.fillStyle = 'rgba(0,0,0,.18)';
+  for(let i=0;i<128;i+=16) x.fillRect(i,0,2,256);            // mullions
+  for(let j=0;j<256;j+=13){
+    for(let i=3;i<124;i+=16){
+      const glass = rng();
+      x.fillStyle = glass<.5 ? 'rgba(160,200,235,.85)' : glass<.8 ? 'rgba(110,150,190,.85)' : 'rgba(255,220,160,.9)';
+      x.fillRect(i,j+2,11,8);
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.anisotropy=4;
+  return t;
+}
+const tints = ['#9aa3ad','#b8b2a6','#8f9aa8','#a8977f','#7e8b99','#c2b49a','#93a0b5'];
+for(const t of tints) facadeTexCache.push(makeFacadeTexture(t));
+
+function box(w,h,d,x,y,z,mat,parent=cityGroup,shadow=true){
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
+  m.position.set(x,y,z);
+  if(shadow){ m.castShadow=true; m.receiveShadow=true; }
+  parent.add(m); return m;
+}
+function registerAABB(x,z,w,d,h){
+  buildings.push({min:new THREE.Vector3(x-w/2,0,z-d/2), max:new THREE.Vector3(x+w/2,h,z+d/2)});
+}
+function registerAnchors(x,z,w,d,h){
+  // corners + edge midpoints of the roof = SM-style web targets
+  const pts = [[-w/2,-d/2],[w/2,-d/2],[-w/2,d/2],[w/2,d/2],[0,-d/2],[0,d/2],[-w/2,0],[w/2,0]];
+  for(const [ox,oz] of pts) anchorPoints.push(new THREE.Vector3(x+ox, h, z+oz));
+}
+
+function buildTower(x,z,foot,heightBase){
+  // tiered setback skyscraper like NYC art-deco / glass towers
+  const tex = facadeTexCache[Math.floor(rng()*facadeTexCache.length)];
+  let w = foot*(0.75+rng()*0.5), d = foot*(0.75+rng()*0.5);
+  let y = 0, remaining = heightBase*(0.7+rng()*0.9);
+  const tiers = 1+Math.floor(rng()*3);
+  let topY = 0, topW = w, topD = d;
+  for(let t=0;t<tiers;t++){
+    const h = remaining*(t===tiers-1 ? 1 : .45+rng()*.25);
+    remaining -= h;
+    const tx = tex.clone(); tx.needsUpdate = true;
+    tx.repeat.set(Math.max(1,Math.round(w/10)), Math.max(1,Math.round(h/12)));
+    const mat = new THREE.MeshStandardMaterial({ map:tx, roughness:.65, metalness:.25,
+      emissive:0xffffff, emissiveMap:tx, emissiveIntensity:.08 });
+    box(w, h, d, x, y+h/2, z, mat);
+    registerAABB(x,z,w,d,y+h);
+    registerAnchors(x,z,w,d,y+h);
+    topY = y+h; topW = w; topD = d;
+    y += h; w *= .62+rng()*.18; d *= .62+rng()*.18;
+    if (w<8||d<8) break;
+  }
+  // rooftop clutter
+  const grey = new THREE.MeshStandardMaterial({color:0x777c85, roughness:.9});
+  if(rng()<.7) box(topW*.25, 3.2, topD*.25, x+topW*.2, topY+1.6, z-topD*.2, grey);           // AC unit
+  if(rng()<.5) box(2.2, 5, 2.2, x-topW*.25, topY+2.5, z+topD*.25, grey);                     // stair box
+  if(rng()<.45){                                                                              // water tower!
+    const wt = new THREE.Mesh(new THREE.CylinderGeometry(2.4,2.8,5.5,10),
+      new THREE.MeshStandardMaterial({color:0x8a5a3a, roughness:.9}));
+    wt.position.set(x+ (rng()-.5)*topW*.4, topY+4.5, z+(rng()-.5)*topD*.4);
+    wt.castShadow = true; cityGroup.add(wt);
+    const legs = new THREE.Mesh(new THREE.CylinderGeometry(2.6,2.6,2,10,1,true),
+      new THREE.MeshStandardMaterial({color:0x554433, side:THREE.DoubleSide}));
+    legs.position.set(wt.position.x, topY+1, wt.position.z); cityGroup.add(legs);
+  }
+  if(topY>150 && rng()<.6){                                                                   // spire
+    const sp = new THREE.Mesh(new THREE.CylinderGeometry(.35,1.4,26,8),
+      new THREE.MeshStandardMaterial({color:0xd8d2c2, metalness:.6, roughness:.35}));
+    sp.position.set(x, topY+13, z); sp.castShadow=true; cityGroup.add(sp);
+    anchorPoints.push(new THREE.Vector3(x, topY+24, z));
+  }
+}
+
+const groundMat = new THREE.MeshStandardMaterial({color:0x4c525c, roughness:.95});
+const groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(6000,6000), groundMat);
+groundMesh.rotation.x = -Math.PI/2; groundMesh.receiveShadow = true; scene.add(groundMesh);
+
+// sidewalks + road markings
+{
+  const sidewalkMat = new THREE.MeshStandardMaterial({color:0x9aa0a8, roughness:.95});
+  const dashMat = new THREE.MeshBasicMaterial({color:0xd8d84a});
+  for(let g=-GRID; g<=GRID; g++){
+    const p = g*(BLOCK+ROAD);
+    // yellow dashes both directions
+    for(let s=-GRID*(BLOCK+ROAD); s<GRID*(BLOCK+ROAD); s+=18){
+      const d1 = new THREE.Mesh(new THREE.PlaneGeometry(.7,6), dashMat);
+      d1.rotation.x=-Math.PI/2; d1.position.set(p, .05, s+9); scene.add(d1);
+      const d2 = new THREE.Mesh(new THREE.PlaneGeometry(6,.7), dashMat);
+      d2.rotation.x=-Math.PI/2; d2.position.set(s+9, .05, p); scene.add(d2);
+    }
+  }
+  for(let gx=-GRID; gx<GRID; gx++)
+    for(let gz=-GRID; gz<GRID; gz++){
+      const cx = gx*(BLOCK+ROAD)+(BLOCK+ROAD)/2, cz = gz*(BLOCK+ROAD)+(BLOCK+ROAD)/2;
+      const sw = new THREE.Mesh(new THREE.PlaneGeometry(BLOCK+8, BLOCK+8), sidewalkMat);
+      sw.rotation.x=-Math.PI/2; sw.position.set(cx,.03,cz); sw.receiveShadow=true; scene.add(sw);
+    }
+}
+
+// distribute towers: tall midtown core, lower outskirts
+for(let gx=-GRID; gx<GRID; gx++){
+  for(let gz=-GRID; gz<GRID; gz++){
+    const cx = gx*(BLOCK+ROAD)+(BLOCK+ROAD)/2;
+    const cz = gz*(BLOCK+ROAD)+(BLOCK+ROAD)/2;
+    const distN = Math.hypot(gx+0.5, gz+0.5)/GRID;         // 0 center -> 1 edge
+    if(rng()<.08) continue;                                 // park / empty lot
+    const perBlock = distN<.35 ? 2 : 3;                     // big towers downtown, clusters uptown
+    for(let b=0;b<perBlock;b++){
+      const ox = (rng()-.5)*(BLOCK-40), oz = (rng()-.5)*(BLOCK-40);
+      const hBase = distN<.3 ? 190 : distN<.55 ? 120 : 60;
+      buildTower(cx+ox, cz+oz, perBlock===2? 40:26, hBase);
+    }
+  }
+}
+
+/* ---- traffic ---- */
+const cars = [];
+{
+  const carCols = [0xffd340, 0xe0e3e8, 0x33404f, 0x9a2222, 0x2a6a3a];
+  const carGeo = new THREE.BoxGeometry(2.2, 1.4, 4.6);
+  for(let i=0;i<70;i++){
+    const mat = new THREE.MeshStandardMaterial({color:carCols[i%carCols.length], roughness:.4, metalness:.4});
+    const car = new THREE.Mesh(carGeo, mat);
+    car.castShadow = true;
+    const lane = (Math.floor(rng()*GRID*2)-GRID)*(BLOCK+ROAD) + (rng()<.5?-5:5);
+    const horizontal = rng()<.5;
+    car.userData = { horizontal, lane, t: rng()*2000, speed: 14+rng()*12, dir: rng()<.5?1:-1 };
+    scene.add(car); cars.push(car);
+  }
+}
+function updateCars(dt){
+  const span = GRID*(BLOCK+ROAD);
+  for(const c of cars){
+    c.userData.t += dt*c.userData.speed*c.userData.dir;
+    let p = ((c.userData.t % (span*2))+span*2)%(span*2)-span;
+    if(c.userData.horizontal){ c.position.set(p, .8, c.userData.lane); c.rotation.y = Math.PI/2*(c.userData.dir>0?1:-1)+Math.PI/2; c.rotation.y = c.userData.dir>0? -Math.PI/2 : Math.PI/2; }
+    else { c.position.set(c.userData.lane, .8, p); c.rotation.y = c.userData.dir>0? Math.PI : 0; }
+  }
+}
+
+/* ================= HERO ================= */
+const hero = new THREE.Group(); scene.add(hero);
+const heroParts = {};
+{
+  const red  = new THREE.MeshStandardMaterial({color:0xc41220, roughness:.45, metalness:.05});
+  const dark = new THREE.MeshStandardMaterial({color:0x101828, roughness:.55});
+  const blk  = new THREE.MeshStandardMaterial({color:0x0a0d14, roughness:.6});
+  function limb(rTop,rBot,len,mat){
+    const g = new THREE.Group();
+    const m = new THREE.Mesh(new THREE.CapsuleGeometry(rTop, len, 4, 8), mat);
+    m.position.y = -len/2; m.castShadow = true; g.add(m);
+    return g;
+  }
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(.4,.62,6,12), red);
+  torso.scale.set(1,1,.72); torso.castShadow=true; torso.position.y=.35;
+  const chestEmblem = new THREE.Mesh(new THREE.OctahedronGeometry(.13), blk);
+  chestEmblem.scale.set(1,1.5,.4); chestEmblem.position.set(0,.5,.31);
+  const hips = new THREE.Mesh(new THREE.CapsuleGeometry(.33,.28,6,12), dark);
+  hips.scale.set(1,1,.75); hips.position.y=-.32; hips.castShadow=true;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(.27,18,14), red);
+  head.scale.set(.92,1.08,.98); head.position.y=1.05; head.castShadow=true;
+  const eyeMat = new THREE.MeshBasicMaterial({color:0xeef4ff});
+  const eyes = [];
+  for(const s of [-1,1]){
+    const e = new THREE.Mesh(new THREE.SphereGeometry(.115,10,10), eyeMat);
+    e.scale.set(.8,1.15,.35); e.rotation.z = -.45*s;
+    e.position.set(.12*s,1.09,.21); eyes.push(e);
+  }
+  // limbs with pivot groups (shoulders / hips)
+  const armL = limb(.11,.09,.78,red); armL.position.set(-.5,.62,0);
+  const armR = limb(.11,.09,.78,red); armR.position.set(.5,.62,0);
+  const legL = limb(.13,.1,.92,dark); legL.position.set(-.2,-.5,0);
+  const legR = limb(.13,.1,.92,dark); legR.position.set(.2,-.5,0);
+  hero.add(torso,chestEmblem,hips,head,...eyes,armL,armR,legL,legR);
+  Object.assign(heroParts,{armL,armR,legL,legR,torso,head});
+}
+
+/* web line — tapered, slightly saggy */
+const WEB_SEGS = 12;
+const webGeo = new THREE.BufferGeometry();
+webGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((WEB_SEGS+1)*3),3));
+const webLine = new THREE.Line(webGeo, new THREE.LineBasicMaterial({color:0xf5f5f5}));
+webLine.frustumCulled=false; webLine.visible=false; scene.add(webLine);
+
+/* speed lines particles */
+const SPEEDLINES = 90;
+const slGeo = new THREE.BufferGeometry();
+const slPos = new Float32Array(SPEEDLINES*6);
+slGeo.setAttribute('position', new THREE.BufferAttribute(slPos,3));
+const speedLines = new THREE.LineSegments(slGeo, new THREE.LineBasicMaterial({color:0xffffff,transparent:true,opacity:0}));
+speedLines.frustumCulled=false; scene.add(speedLines);
+
+/* ================= STATE / INPUT ================= */
+const S = {
+  pos:new THREE.Vector3(0, 120, 300),
+  vel:new THREE.Vector3(0, 0, -22),
+  attached:false, anchor:new THREE.Vector3(), ropeLen:0,
+  onGround:false, wallNormal:null, wallTime:0,
+  zipping:false, zipTarget:new THREE.Vector3(),
+  diving:false, trickTimer:0, trickSpin:0,
+  swingSide:1,            // alternate hands like SM
+  camShake:0,
+};
+const GRAV = 30, MAXSPD = 92;
+const cam = { h:0, v:-.12, dist:11 };
+const keys = {};
+let started = false, swingHeld = false;
+
+const $ = id => document.getElementById(id);
+const overlay=$('overlay'), speedNum=document.querySelector('#speedo .num'),
+      speedFillEl=document.querySelector('#speedo .fill'), actionEl=$('action'),
+      zipmark=$('zipmark'), trickEl=$('trick'), trickName=$('trickName');
+
+window.__startGame = ()=>{
+  started = true;
+  overlay.style.display = 'none';
+  try { renderer.domElement.requestPointerLock(); } catch(e) {}
+};
+window.__gameReady = true;
+goBtn.textContent = '▶ \u00A0CLICK TO SWING';
+renderer.domElement.addEventListener('click', ()=>{ if(started && !document.pointerLockElement) renderer.domElement.requestPointerLock(); });
+addEventListener('mousemove', e=>{
+  if(!document.pointerLockElement) return;
+  cam.h -= e.movementX*.0023; cam.v -= e.movementY*.002;
+  cam.v = Math.max(-1.3, Math.min(1.3, cam.v));
+});
+addEventListener('mousedown', e=>{ if(e.button===0) swingHeld=true; });
+addEventListener('mouseup',   e=>{ if(e.button===0) swingHeld=false; });
+addEventListener('keydown', e=>{
+  keys[e.code]=true;
+  if(e.code==='Space'){ swingHeld=true; e.preventDefault(); }
+  if(e.code==='KeyR') respawn();
+  if(e.code==='KeyE') tryZip();
+  if(e.code==='KeyQ') doTrick();
+});
+addEventListener('keyup', e=>{
+  keys[e.code]=false;
+  if(e.code==='Space') swingHeld=false;
+});
+addEventListener('resize', ()=>{
+  camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth,innerHeight);
+});
+function respawn(){ S.pos.set(0,120,300); S.vel.set(0,0,-22); detach(); S.zipping=false; flash('RESPAWNED'); }
+function flash(t, ms=1100){ actionEl.textContent=t; actionEl.style.opacity=1;
+  clearTimeout(flash._t); flash._t=setTimeout(()=>actionEl.style.opacity=0, ms); }
+
+/* ================= SM2-STYLE AUTO ANCHOR ================= */
+const _v=new THREE.Vector3(), _v2=new THREE.Vector3(), _v3=new THREE.Vector3();
+function camForward(){ return _v3.set(0,0,-1).applyEuler(new THREE.Euler(cam.v,cam.h,0,'YXZ')); }
+
+function findSwingAnchor(){
+  // pick the best anchor: above player, ahead in travel dir, good lateral offset for a natural arc
+  const travel = _v.set(S.vel.x,0,S.vel.z);
+  const dir = travel.lengthSq()>4 ? travel.normalize() : camForward().setY(0).normalize();
+  let best=null, bestScore=-Infinity;
+  for(const a of anchorPoints){
+    const dy = a.y - S.pos.y;
+    if(dy < 6 || dy > 130) continue;
+    _v2.copy(a).sub(S.pos);
+    const dist = _v2.length();
+    if(dist < 12 || dist > 150) continue;
+    const flat = _v2.clone().setY(0);
+    const fLen = flat.length()||1;
+    const ahead = flat.divideScalar(fLen).dot(dir);       // want ahead of us
+    if(ahead < -.1) continue;
+    // prefer anchors slightly to alternating side (hand-over-hand feel)
+    const side = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), dir);
+    const sideDot = flat.dot(side) * S.swingSide;
+    const score = ahead*3 + Math.min(dy,60)/60*2 + sideDot*.6 - dist/150;
+    if(score>bestScore){ bestScore=score; best=a; }
+  }
+  return best;
+}
+
+function attach(a){
+  S.attached=true; S.anchor.copy(a);
+  const d = S.pos.distanceTo(a);
+  // rope sized so arc bottom stays above streets when possible
+  S.ropeLen = Math.max(8, Math.min(d*.99, d));
+  webLine.visible=true;
+  S.swingSide *= -1;
+  S.camShake = Math.min(.5, S.camShake+.15);
+}
+function detach(){
+  if(S.attached){
+    // release boost — reward good timing (moving upward = bigger boost)
+    const up = Math.max(0, S.vel.y);
+    S.vel.y += 3 + up*.12;
+    S.vel.multiplyScalar(1.04);
+  }
+  S.attached=false; webLine.visible=false;
+}
+
+/* ================= ZIP (POINT LAUNCH) ================= */
+let zipCandidate=null;
+function findZipTarget(){
+  const dir = camForward();
+  let best=null, bestScore=-Infinity;
+  for(const a of anchorPoints){
+    _v2.copy(a).sub(S.pos);
+    const dist=_v2.length();
+    if(dist<10||dist>220) continue;
+    const align=_v2.normalize().dot(dir);
+    if(align<.94) continue;
+    const score=align*10-dist/220;
+    if(score>bestScore){bestScore=score;best=a;}
+  }
+  return best;
+}
+function tryZip(){
+  const t = zipCandidate || findZipTarget();
+  if(!t){ flash('NO ZIP TARGET'); return; }
+  detach();
+  S.zipping=true; S.zipTarget.copy(t);
+  S.camShake=.4;
+  flash('ZIP!');
+}
+
+/* ================= TRICKS ================= */
+const TRICKS=['SWAN DIVE','CANNONBALL','COBRA FLIP','SKY SURFER','WEB WINGS'];
+function doTrick(){
+  if(S.onGround||S.attached) return;
+  S.trickTimer=.9; S.trickSpin=(Math.random()<.5?1:-1)*(Math.PI*2);
+  trickName.textContent=TRICKS[Math.floor(Math.random()*TRICKS.length)];
+  trickEl.classList.add('pop');
+  setTimeout(()=>trickEl.classList.remove('pop'), 900);
+}
+
+/* ================= PHYSICS ================= */
+function collide(){
+  S.onGround=false; S.wallNormal=null;
+  if(S.pos.y<1.7){ S.pos.y=1.7; if(S.vel.y<0)S.vel.y=0; S.vel.x*=.9; S.vel.z*=.9; S.onGround=true; }
+  const r=.85;
+  for(const b of buildings){
+    if(S.pos.x<b.min.x-r||S.pos.x>b.max.x+r) continue;
+    if(S.pos.z<b.min.z-r||S.pos.z>b.max.z+r) continue;
+    if(S.pos.y<b.min.y||S.pos.y>b.max.y+r) continue;
+    const pens=[
+      {d:S.pos.x-(b.min.x-r), ax:'x', s:-1},
+      {d:(b.max.x+r)-S.pos.x, ax:'x', s:1},
+      {d:S.pos.z-(b.min.z-r), ax:'z', s:-1},
+      {d:(b.max.z+r)-S.pos.z, ax:'z', s:1},
+      {d:(b.max.y+r)-S.pos.y, ax:'y', s:1},
+    ].sort((a,c)=>a.d-c.d)[0];
+    if(pens.ax==='y'){
+      S.pos.y=b.max.y+r; if(S.vel.y<0)S.vel.y=0;
+      S.vel.x*=.92; S.vel.z*=.92; S.onGround=true;
+    }else{
+      // wall contact -> possible wall run
+      const n = pens.ax==='x'? new THREE.Vector3(pens.s,0,0):new THREE.Vector3(0,0,pens.s);
+      if(pens.ax==='x') S.pos.x = pens.s===1? b.max.x+r : b.min.x-r;
+      else S.pos.z = pens.s===1? b.max.z+r : b.min.z-r;
+      const vn = S.vel.dot(n);
+      if(vn<0) S.vel.addScaledVector(n,-vn);   // slide along wall
+      S.wallNormal = n;
+    }
+  }
+}
+
+function step(dt){
+  /* swing intent */
+  if(swingHeld && !S.attached && !S.zipping){
+    const a=findSwingAnchor();
+    if(a) attach(a);
+  } else if(!swingHeld && S.attached) detach();
+
+  /* zipping = strong homing pull */
+  if(S.zipping){
+    _v.copy(S.zipTarget).sub(S.pos);
+    const d=_v.length();
+    if(d<4){ S.zipping=false; S.vel.y=Math.max(S.vel.y,14); flash('POINT LAUNCH'); }
+    else{
+      _v.divideScalar(d);
+      const zipSpeed = 68;
+      S.vel.lerp(_v.multiplyScalar(zipSpeed), Math.min(1, dt*7));
+    }
+  }
+
+  /* gravity */
+  S.vel.y -= GRAV*dt;
+
+  /* dive: SM2's shift-dive trades height for speed */
+  S.diving = (keys['ShiftLeft']||keys['ShiftRight']) && !S.onGround && !S.zipping;
+  if(S.diving){
+    S.vel.y -= 55*dt;
+    const f=camForward().setY(0).normalize();
+    S.vel.addScaledVector(f, 30*dt);
+  }
+
+  /* steering */
+  const f=_v.set(-Math.sin(cam.h),0,-Math.cos(cam.h));
+  const rgt=_v2.set(f.z,0,-f.x);
+  const acc = S.onGround? 60 : S.attached? 26 : 15;
+  if(keys['KeyW']) S.vel.addScaledVector(f, acc*dt);
+  if(keys['KeyS']) S.vel.addScaledVector(f, -acc*.6*dt);
+  if(keys['KeyA']) S.vel.addScaledVector(rgt, -acc*.8*dt);
+  if(keys['KeyD']) S.vel.addScaledVector(rgt, acc*.8*dt);
+
+  /* wall run: touching wall + holding W + some speed -> run up */
+  if(S.wallNormal && keys['KeyW'] && !S.attached){
+    const hs=Math.hypot(S.vel.x,S.vel.z);
+    if(hs>6 || S.vel.y>0){
+      S.wallTime+=dt;
+      if(S.wallTime<1.2){ S.vel.y=Math.max(S.vel.y, 16); flashOnce('WALL RUN'); }
+    }
+  } else S.wallTime=0;
+
+  /* integrate */
+  S.pos.addScaledVector(S.vel, dt);
+
+  /* rope constraint */
+  if(S.attached){
+    _v.copy(S.pos).sub(S.anchor);
+    const d=_v.length();
+    if(d>S.ropeLen){
+      const n=_v.divideScalar(d);
+      S.pos.copy(S.anchor).addScaledVector(n,S.ropeLen);
+      const vr=S.vel.dot(n);
+      if(vr>0) S.vel.addScaledVector(n,-vr);
+      // gravity pump at bottom of arc = free speed, capped
+      const bottomness=Math.max(0,-n.y);
+      S.vel.multiplyScalar(1+.09*dt*bottomness);
+    }
+    // slight auto-shorten while holding W (reel)
+    if(keys['KeyW']) S.ropeLen=Math.max(8, S.ropeLen-9*dt);
+  }
+
+  /* drag + cap */
+  S.vel.multiplyScalar(1-(S.attached?.012:.03)*dt);
+  const spd=S.vel.length();
+  if(spd>MAXSPD) S.vel.multiplyScalar(MAXSPD/spd);
+
+  collide();
+
+  /* fell to street while swinging? keep momentum, run */
+  if(S.trickTimer>0) S.trickTimer-=dt;
+}
+let lastFlash='';
+function flashOnce(t){ if(lastFlash!==t){ flash(t); lastFlash=t; setTimeout(()=>lastFlash='',1500);} }
+
+/* ================= VISUALS ================= */
+const heroQuatTarget=new THREE.Quaternion();
+const eul=new THREE.Euler();
+function updateVisuals(dt, now){
+  hero.position.copy(S.pos);
+
+  /* body orientation */
+  const hv=_v.set(S.vel.x,0,S.vel.z);
+  const spd=S.vel.length();
+  let targetYaw=hero.rotation.y;
+  if(hv.lengthSq()>2) targetYaw=Math.atan2(hv.x,hv.z);
+  let pitch=0, roll=0;
+  if(S.attached){ pitch=-.85; roll=Math.sin(now*.004)*.06; }
+  else if(S.diving) pitch=1.25;
+  else if(S.zipping) pitch=-1.3;
+  else pitch=THREE.MathUtils.clamp(-S.vel.y*.022,-.6,.85);
+  if(S.trickTimer>0) pitch += S.trickSpin*(1-S.trickTimer/.9);
+  eul.set(pitch,targetYaw,roll,'YXZ');
+  heroQuatTarget.setFromEuler(eul);
+  hero.quaternion.slerp(heroQuatTarget, Math.min(1,dt*7));
+
+  /* limb animation */
+  const {armL,armR,legL,legR}=heroParts;
+  if(S.attached){
+    const webArm=S.swingSide>0?armL:armR, freeArm=S.swingSide>0?armR:armL;
+    webArm.rotation.x += (-2.9-webArm.rotation.x)*dt*10;
+    freeArm.rotation.x += (.6-freeArm.rotation.x)*dt*6;
+    freeArm.rotation.z += ((S.swingSide>0?-.9:.9)-freeArm.rotation.z)*dt*6;
+    legL.rotation.x += (.55-legL.rotation.x)*dt*6;
+    legR.rotation.x += (-.25-legR.rotation.x)*dt*6;
+  } else if(S.diving||S.zipping){
+    for(const a of [armL,armR]) a.rotation.x += ((S.diving?2.6:-2.9)-a.rotation.x)*dt*8;
+    legL.rotation.x*= .85; legR.rotation.x*=.85;
+  } else if(S.onGround && spd>3){
+    const t=now*.014*Math.min(2,spd/10);
+    armL.rotation.x=Math.sin(t)*.9; armR.rotation.x=-Math.sin(t)*.9;
+    legL.rotation.x=-Math.sin(t)*.95; legR.rotation.x=Math.sin(t)*.95;
+    armL.rotation.z*=.8; armR.rotation.z*=.8;
+  } else {
+    for(const p of [armL,armR,legL,legR]){ p.rotation.x*=.92; p.rotation.z*=.92; }
+  }
+
+  /* web rope with sag */
+  if(S.attached){
+    const hand=_v2.set(S.swingSide>0?-.55:.55,.75,0).applyQuaternion(hero.quaternion).add(S.pos);
+    const posAttr=webGeo.attributes.position;
+    const sag=Math.max(0,(S.ropeLen-S.pos.distanceTo(S.anchor)))*.5+.4;
+    for(let i=0;i<=WEB_SEGS;i++){
+      const t=i/WEB_SEGS;
+      const px=hand.x+(S.anchor.x-hand.x)*t;
+      const py=hand.y+(S.anchor.y-hand.y)*t - Math.sin(t*Math.PI)*sag;
+      const pz=hand.z+(S.anchor.z-hand.z)*t;
+      posAttr.setXYZ(i,px,py,pz);
+    }
+    posAttr.needsUpdate=true;
+  }
+
+  /* speed lines */
+  const slOn=spd>42;
+  speedLines.material.opacity += ((slOn? Math.min(.5,(spd-42)/60):0)-speedLines.material.opacity)*dt*6;
+  if(speedLines.material.opacity>.02){
+    const dir=S.vel.clone().normalize();
+    for(let i=0;i<SPEEDLINES;i++){
+      if(rngFrame()<.1||slPos[i*6]===0){
+        const off=new THREE.Vector3((Math.random()-.5)*26,(Math.random()-.5)*18,(Math.random()-.5)*26);
+        const p=S.pos.clone().add(dir.clone().multiplyScalar(18+Math.random()*22)).add(off);
+        const q=p.clone().addScaledVector(dir, 2+spd*.06);
+        slPos.set([p.x,p.y,p.z,q.x,q.y,q.z], i*6);
+      }
+    }
+    slGeo.attributes.position.needsUpdate=true;
+  }
+
+  /* camera: low SM2-style chase cam */
+  const camDir=_v.set(0,0,1).applyEuler(new THREE.Euler(cam.v,cam.h,0,'YXZ'));
+  const wantDist=cam.dist+Math.min(6,spd*.06);
+  const targetPos=_v2.copy(S.pos).addScaledVector(camDir,wantDist).add(_v3.set(0,2.1,0));
+  camera.position.lerp(targetPos, Math.min(1,dt*9));
+  if(S.camShake>0){
+    camera.position.x+=(Math.random()-.5)*S.camShake;
+    camera.position.y+=(Math.random()-.5)*S.camShake;
+    S.camShake*=Math.pow(.02,dt);
+  }
+  const look=_v3.set(S.pos.x,S.pos.y+1.4,S.pos.z).addScaledVector(S.vel,.06);
+  camera.lookAt(look);
+  const targetFov=68+Math.min(26,spd*.3)+(S.diving?6:0);
+  camera.fov+=(targetFov-camera.fov)*Math.min(1,dt*5);
+  camera.updateProjectionMatrix();
+
+  /* HUD */
+  speedNum.textContent=Math.round(spd*1.6);   // fake mph conversion for flavor
+  speedFillEl.style.width=Math.min(100,spd/MAXSPD*100)+'%';
+
+  /* zip marker projection */
+  zipCandidate=findZipTarget();
+  if(zipCandidate && !S.zipping){
+    const p=zipCandidate.clone().project(camera);
+    if(p.z<1){
+      zipmark.style.display='flex';
+      zipmark.style.left=((p.x*.5+.5)*innerWidth)+'px';
+      zipmark.style.top=((-p.y*.5+.5)*innerHeight)+'px';
+    } else zipmark.style.display='none';
+  } else zipmark.style.display='none';
+}
+let _rf=1234; function rngFrame(){ _rf=_rf+0x6D2B79F5|0; let t=Math.imul(_rf^_rf>>>15,1|_rf); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }
+
+/* ================= LOOP ================= */
+let last=performance.now();
+function loop(now){
+  requestAnimationFrame(loop);
+  let dt=Math.min(.033,(now-last)/1000); last=now;
+  updateCars(dt);
+  if(started){
+    const SUB=3;
+    for(let i=0;i<SUB;i++) step(dt/SUB);
+    updateVisuals(dt, now);
+  } else {
+    const t=now*.00008;
+    camera.position.set(Math.sin(t)*420, 190+Math.sin(t*2.3)*30, Math.cos(t)*420);
+    camera.lookAt(0,110,0);
+  }
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(loop);
+</script>
 </body>
 </html>
