@@ -29,6 +29,8 @@
   #speedo .num{font-size:31px;font-weight:200;letter-spacing:1px;line-height:1}
   #speedo .unit{font-size:9px;letter-spacing:3px;opacity:.9;color:#7fd4ff;margin-top:3px}
   #streaks{position:fixed;inset:0;z-index:6;pointer-events:none}
+  #grade{position:fixed;inset:0;z-index:5;pointer-events:none;
+         background:linear-gradient(180deg, rgba(255,176,96,.085) 0%, rgba(0,0,0,0) 42%, rgba(24,44,88,.12) 100%)}
   #action{position:fixed;top:56%;left:50%;transform:translateX(-50%);z-index:10;color:#fff;font-size:13px;
           letter-spacing:3px;font-weight:600;text-shadow:0 1px 8px rgba(0,0,0,.7);user-select:none;
           pointer-events:none;opacity:0;transition:opacity .25s}
@@ -66,6 +68,7 @@
 </style>
 </head>
 <body>
+<div id="grade"></div>
 <div id="vignette"></div>
 <canvas id="streaks"></canvas>
 <div id="hud"><div class="title">WEB <b>SLINGER</b> // FREE ROAM</div><div id="hpbar"><div id="hpfill"></div></div><div id="econ">LV 1 · 0/100 XP · $0</div></div>
@@ -148,11 +151,11 @@ renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.12;
+renderer.toneMappingExposure = 0.92;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0xbfd8ee, 260, 1600);
+scene.fog = new THREE.Fog(0xc9d2e4, 190, 1350);
 
 const camera = new THREE.PerspectiveCamera(68, innerWidth/innerHeight, .1, 4000);
 
@@ -167,9 +170,9 @@ const camera = new THREE.PerspectiveCamera(68, innerWidth/innerHeight, .1, 4000)
       varying vec3 vP;
       void main(){
         float h = normalize(vP).y;
-        vec3 top = vec3(.25,.48,.85);
-        vec3 mid = vec3(.65,.78,.92);
-        vec3 low = vec3(1.0,.72,.45);
+        vec3 top = vec3(.15,.34,.72);
+        vec3 mid = vec3(.55,.68,.88);
+        vec3 low = vec3(1.0,.6,.32);
         vec3 c = h > .25 ? mix(mid, top, smoothstep(.25,.9,h)) : mix(low, mid, smoothstep(-.05,.25,h));
         // sun glow toward the west
         vec3 sd = normalize(vec3(-.55,.16,-.35));
@@ -182,6 +185,14 @@ const camera = new THREE.PerspectiveCamera(68, innerWidth/innerHeight, .1, 4000)
   const sunBall = new THREE.Mesh(new THREE.SphereGeometry(38,16,16), new THREE.MeshBasicMaterial({color:0xfff1d0}));
   sunBall.position.set(-1300, 400, -840);
   scene.add(sunBall);
+  // additive halo sprite = cheap "bloom" on the sun only
+  const hc = document.createElement('canvas'); hc.width=hc.height=128;
+  const hg = hc.getContext('2d');
+  const gr = hg.createRadialGradient(64,64,0,64,64,64);
+  gr.addColorStop(0,'rgba(255,232,185,1)'); gr.addColorStop(.35,'rgba(255,190,120,.4)'); gr.addColorStop(1,'rgba(255,170,90,0)');
+  hg.fillStyle=gr; hg.fillRect(0,0,128,128);
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(hc), transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, fog:false}));
+  halo.scale.set(760,760,1); halo.position.copy(sunBall.position); scene.add(halo);
 }
 /* image-based lighting: bake the sky into a PMREM env map -> real reflections on glass */
 {
@@ -189,8 +200,9 @@ const camera = new THREE.PerspectiveCamera(68, innerWidth/innerHeight, .1, 4000)
   scene.environment = pmrem.fromScene(scene, 0, .1, 3000).texture;
   pmrem.dispose();
 }
-const hemi = new THREE.HemisphereLight(0xcfe4ff, 0x8a6a4a, .75); scene.add(hemi);
-const sun = new THREE.DirectionalLight(0xffe0b0, 2.0);
+const hemi = new THREE.HemisphereLight(0xb9d2f2, 0x5a4a3a, .42); scene.add(hemi);
+const rimFill = new THREE.DirectionalLight(0x93b0e8, .5); rimFill.position.set(300,180,260); scene.add(rimFill);
+const sun = new THREE.DirectionalLight(0xffd9a0, 2.6);
 sun.position.set(-320, 420, -210);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048,2048);
@@ -207,25 +219,41 @@ const cityGroup = new THREE.Group(); scene.add(cityGroup);
 
 const BLOCK = 92, ROAD = 26, GRID = 9;   // manhattan-ish grid
 const facadeTexCache = [];
-function makeFacadeTexture(tint){
+function makeFacadeTexture(tint, style){
+  // returns {map, em, glass}: em is a black canvas with ONLY the lit windows drawn,
+  // used as emissiveMap so warm windows glow without washing out the facade.
   const c = document.createElement('canvas'); c.width=128; c.height=256;
   const x = c.getContext('2d');
+  const e = document.createElement('canvas'); e.width=128; e.height=256;
+  const ex = e.getContext('2d'); ex.fillStyle='#000'; ex.fillRect(0,0,128,256);
   x.fillStyle = tint; x.fillRect(0,0,128,256);
-  x.fillStyle = 'rgba(0,0,0,.18)';
-  for(let i=0;i<128;i+=16) x.fillRect(i,0,2,256);            // mullions
-  for(let j=0;j<256;j+=13){
-    for(let i=3;i<124;i+=16){
-      const glass = rng();
-      x.fillStyle = glass<.5 ? 'rgba(160,200,235,.85)' : glass<.8 ? 'rgba(110,150,190,.85)' : 'rgba(255,220,160,.9)';
-      x.fillRect(i,j+2,11,8);
+  for(let i=0;i<128;i+=4){ x.fillStyle='rgba(0,0,0,'+(rng()*.07).toFixed(3)+')'; x.fillRect(i,0,4,256); } // weathering
+  if(style===0){ // glass curtain wall: dark blue glass, thin mullions
+    x.fillStyle='rgba(10,16,26,.5)'; x.fillRect(0,0,128,256);
+    x.fillStyle='rgba(0,0,0,.5)';
+    for(let i=0;i<128;i+=16) x.fillRect(i,0,2,256);
+    for(let j=0;j<256;j+=11) x.fillRect(0,j,128,2);
+    for(let j=2;j<254;j+=11) for(let i=3;i<124;i+=16){
+      const r = rng();
+      x.fillStyle = r<.62 ? 'rgba(14,24,40,.92)' : r<.86 ? 'rgba(88,128,172,.72)' : 'rgba(255,186,105,.95)';
+      x.fillRect(i,j,11,7);
+      if(r>=.86){ ex.fillStyle='rgb(255,172,92)'; ex.fillRect(i,j,11,7); }
+    }
+  } else { // masonry: floor bands + punched windows
+    x.fillStyle='rgba(0,0,0,.24)';
+    for(let j=0;j<256;j+=16) x.fillRect(0,j,128,2);
+    for(let j=4;j<252;j+=16) for(let i=5;i<122;i+=14){
+      const r = rng();
+      x.fillStyle = r<.68 ? 'rgba(12,18,30,.95)' : r<.88 ? 'rgba(66,96,136,.8)' : 'rgba(255,196,120,.95)';
+      x.fillRect(i,j,8,9);
+      if(r>=.88){ ex.fillStyle='rgb(255,180,100)'; ex.fillRect(i,j,8,9); }
     }
   }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.anisotropy=4;
-  return t;
+  const mk = cv => { const t=new THREE.CanvasTexture(cv); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.anisotropy=4; return t; };
+  return { map:mk(c), em:mk(e), glass:style===0 };
 }
-const tints = ['#9aa3ad','#b8b2a6','#8f9aa8','#a8977f','#7e8b99','#c2b49a','#93a0b5'];
-for(const t of tints) facadeTexCache.push(makeFacadeTexture(t));
+const tints = ['#5f6a78','#8a8478','#4e5a68','#7a6f5e','#66707f','#8f8672','#56616e','#3e4a5a'];
+for(let i=0;i<tints.length;i++) facadeTexCache.push(makeFacadeTexture(tints[i], i%2));
 
 function box(w,h,d,x,y,z,mat,parent=cityGroup,shadow=true){
   const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mat);
@@ -242,9 +270,21 @@ function registerAnchors(x,z,w,d,h){
   for(const [ox,oz] of pts) anchorPoints.push(new THREE.Vector3(x+ox, h, z+oz));
 }
 
+const baseMat = new THREE.MeshStandardMaterial({color:0x1a1e26, roughness:.9});
+const parapetMat = new THREE.MeshStandardMaterial({color:0x3a4250, roughness:.85});
+const signTexes = [];
+{ // rooftop neon sign textures (fictional brands)
+  for(const [txt,col] of [['HOTEL','#ff9a3d'],['THEATRE','#ff5d7a'],['NEON JAZZ','#5dc8ff'],['PIZZA','#ffd23d'],['RADIO','#9dff6b']]){
+    const c=document.createElement('canvas'); c.width=256; c.height=64;
+    const g=c.getContext('2d'); g.fillStyle='#0a0c12'; g.fillRect(0,0,256,64);
+    g.font='bold 38px Arial'; g.textAlign='center'; g.textBaseline='middle';
+    g.shadowColor=col; g.shadowBlur=16; g.fillStyle=col; g.fillText(txt,128,34);
+    const t=new THREE.CanvasTexture(c); signTexes.push(t);
+  }
+}
 function buildTower(x,z,foot,heightBase){
   // tiered setback skyscraper like NYC art-deco / glass towers
-  const tex = facadeTexCache[Math.floor(rng()*facadeTexCache.length)];
+  const fs = facadeTexCache[Math.floor(rng()*facadeTexCache.length)];
   let w = foot*(0.75+rng()*0.5), d = foot*(0.75+rng()*0.5);
   let y = 0, remaining = heightBase*(0.7+rng()*0.9);
   const tiers = 1+Math.floor(rng()*3);
@@ -252,16 +292,34 @@ function buildTower(x,z,foot,heightBase){
   for(let t=0;t<tiers;t++){
     const h = remaining*(t===tiers-1 ? 1 : .45+rng()*.25);
     remaining -= h;
-    const tx = tex.clone(); tx.needsUpdate = true;
+    const tx = fs.map.clone(); tx.needsUpdate = true;
     tx.repeat.set(Math.max(1,Math.round(w/10)), Math.max(1,Math.round(h/12)));
-    const mat = new THREE.MeshStandardMaterial({ map:tx, roughness:.38, metalness:.55,
-      envMapIntensity:1.1, emissive:0xffffff, emissiveMap:tx, emissiveIntensity:.08 });
+    const em = fs.em.clone(); em.needsUpdate = true;
+    em.repeat.copy(tx.repeat);
+    const mat = new THREE.MeshStandardMaterial({ map:tx,
+      roughness: fs.glass? .2 : .82, metalness: fs.glass? .75 : .05,
+      envMapIntensity: fs.glass? 1.25 : .3,
+      emissive:0xffffff, emissiveMap:em, emissiveIntensity:.9 });
     box(w, h, d, x, y+h/2, z, mat);
+    if(t===0) box(w+.8, 5, d+.8, x, 2.5, z, baseMat);                 // dark storefront base
+    box(w+.5, .7, d+.5, x, y+h+.3, z, parapetMat);                    // roof parapet lip
     registerAABB(x,z,w,d,y+h);
     registerAnchors(x,z,w,d,y+h);
     topY = y+h; topW = w; topD = d;
     y += h; w *= .62+rng()*.18; d *= .62+rng()*.18;
     if (w<8||d<8) break;
+  }
+  if(topY>35 && topY<150 && rng()<.28){                               // rooftop neon billboard
+    const st = signTexes[Math.floor(rng()*signTexes.length)];
+    const sw = Math.min(topW*.9, 16), sh = sw*.25;
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(sw, sh),
+      new THREE.MeshBasicMaterial({map:st, side:THREE.DoubleSide, fog:true}));
+    const face = rng()<.5 ? 1 : 0;
+    sign.position.set(x + (face? 0 : (rng()<.5?-1:1)*topW/2), topY+sh/2+2.2, z + (face? (rng()<.5?-1:1)*topD/2 : 0));
+    if(!face) sign.rotation.y = Math.PI/2;
+    cityGroup.add(sign);
+    const post = new THREE.Mesh(new THREE.BoxGeometry(.4, 2.4, .4), parapetMat);
+    post.position.set(sign.position.x, topY+1.2, sign.position.z); cityGroup.add(post);
   }
   // rooftop clutter
   const grey = new THREE.MeshStandardMaterial({color:0x777c85, roughness:.9});
@@ -284,13 +342,13 @@ function buildTower(x,z,foot,heightBase){
   }
 }
 
-const groundMat = new THREE.MeshStandardMaterial({color:0x4c525c, roughness:.95});
+const groundMat = new THREE.MeshStandardMaterial({color:0x23262c, roughness:.95});
 const groundMesh = new THREE.Mesh(new THREE.PlaneGeometry(6000,6000), groundMat);
 groundMesh.rotation.x = -Math.PI/2; groundMesh.receiveShadow = true; scene.add(groundMesh);
 
 // sidewalks + road markings
 {
-  const sidewalkMat = new THREE.MeshStandardMaterial({color:0x9aa0a8, roughness:.95});
+  const sidewalkMat = new THREE.MeshStandardMaterial({color:0x565c66, roughness:.95});
   const dashMat = new THREE.MeshBasicMaterial({color:0xd8d84a});
   for(let g=-GRID; g<=GRID; g++){
     const p = g*(BLOCK+ROAD);
@@ -308,6 +366,34 @@ groundMesh.rotation.x = -Math.PI/2; groundMesh.receiveShadow = true; scene.add(g
       const sw = new THREE.Mesh(new THREE.PlaneGeometry(BLOCK+8, BLOCK+8), sidewalkMat);
       sw.rotation.x=-Math.PI/2; sw.position.set(cx,.03,cz); sw.receiveShadow=true; scene.add(sw);
     }
+  // street lamps at intersections (warm points of light along every avenue)
+  const poleMat = new THREE.MeshStandardMaterial({color:0x2a2e36, roughness:.7});
+  const lampMat = new THREE.MeshBasicMaterial({color:0xffd9a0});
+  const poleGeo = new THREE.CylinderGeometry(.12,.18,7,6);
+  const headGeo = new THREE.SphereGeometry(.34,8,8);
+  for(let gx=-GRID; gx<=GRID; gx+=2)
+    for(let gz=-GRID; gz<=GRID; gz+=2){
+      const px = gx*(BLOCK+ROAD)+ROAD/2+2.2, pz = gz*(BLOCK+ROAD)+ROAD/2+2.2;
+      const pole = new THREE.Mesh(poleGeo, poleMat); pole.position.set(px,3.5,pz); scene.add(pole);
+      const head = new THREE.Mesh(headGeo, lampMat); head.position.set(px,7.1,pz); scene.add(head);
+    }
+}
+
+/* small city parks on the empty lots */
+const parkGrass = new THREE.MeshStandardMaterial({color:0x2f4a2c, roughness:1});
+const trunkMat = new THREE.MeshStandardMaterial({color:0x4a3524, roughness:.95});
+const leafMat  = new THREE.MeshStandardMaterial({color:0x2c5a30, roughness:.9});
+function makePark(cx,cz){
+  const g = new THREE.Mesh(new THREE.PlaneGeometry(BLOCK-6, BLOCK-6), parkGrass);
+  g.rotation.x=-Math.PI/2; g.position.set(cx,.06,cz); g.receiveShadow=true; scene.add(g);
+  for(let i=0;i<7;i++){
+    const tx = cx+(rng()-.5)*(BLOCK-24), tz = cz+(rng()-.5)*(BLOCK-24);
+    const th = 3+rng()*3;
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(.25,.35,th,6), trunkMat);
+    trunk.position.set(tx,th/2,tz); trunk.castShadow=true; cityGroup.add(trunk);
+    const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(2+rng()*1.6,0), leafMat);
+    crown.position.set(tx,th+1.4,tz); crown.castShadow=true; cityGroup.add(crown);
+  }
 }
 
 // distribute towers: tall midtown core, lower outskirts
@@ -316,13 +402,26 @@ for(let gx=-GRID; gx<GRID; gx++){
     const cx = gx*(BLOCK+ROAD)+(BLOCK+ROAD)/2;
     const cz = gz*(BLOCK+ROAD)+(BLOCK+ROAD)/2;
     const distN = Math.hypot(gx+0.5, gz+0.5)/GRID;         // 0 center -> 1 edge
-    if(rng()<.08) continue;                                 // park / empty lot
+    if(rng()<.08){ makePark(cx,cz); continue; }             // park lot
     const perBlock = distN<.35 ? 2 : 3;                     // big towers downtown, clusters uptown
     for(let b=0;b<perBlock;b++){
       const ox = (rng()-.5)*(BLOCK-40), oz = (rng()-.5)*(BLOCK-40);
       const hBase = distN<.3 ? 190 : distN<.55 ? 120 : 60;
       buildTower(cx+ox, cz+oz, perBlock===2? 40:26, hBase);
     }
+  }
+}
+
+/* ---- distant skyline silhouettes: sit inside the fog band, read as haze ---- */
+{
+  const silMat = new THREE.MeshBasicMaterial({color:0x7c8ca8});
+  const span = GRID*(BLOCK+ROAD);
+  for(let i=0;i<90;i++){
+    const a = rng()*Math.PI*2, r = span+180+rng()*520;
+    const w = 30+rng()*70, h = 60+rng()*260;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w,h,w), silMat);
+    m.position.set(Math.cos(a)*r, h/2, Math.sin(a)*r);
+    cityGroup.add(m);
   }
 }
 
@@ -355,8 +454,23 @@ function updateCars(dt){
 const hero = new THREE.Group(); scene.add(hero);
 const heroParts = {};
 {
-  const red  = new THREE.MeshStandardMaterial({color:0xc41220, roughness:.45, metalness:.05});
-  const dark = new THREE.MeshStandardMaterial({color:0x101828, roughness:.55});
+  // procedural web-pattern suit texture (grid + diagonals over red)
+  const suitCv = document.createElement('canvas'); suitCv.width=suitCv.height=128;
+  const sx2 = suitCv.getContext('2d');
+  sx2.fillStyle='#c41220'; sx2.fillRect(0,0,128,128);
+  sx2.strokeStyle='rgba(60,0,4,.55)'; sx2.lineWidth=1.3;
+  for(let i=0;i<=128;i+=16){
+    sx2.beginPath(); sx2.moveTo(i,0); sx2.lineTo(i,128); sx2.stroke();
+    sx2.beginPath(); sx2.moveTo(0,i); sx2.lineTo(128,i); sx2.stroke();
+  }
+  for(let i=-128;i<=128;i+=16){
+    sx2.beginPath(); sx2.moveTo(i,0); sx2.lineTo(i+128,128); sx2.stroke();
+    sx2.beginPath(); sx2.moveTo(i+128,0); sx2.lineTo(i,128); sx2.stroke();
+  }
+  const suitTex = new THREE.CanvasTexture(suitCv);
+  suitTex.wrapS=suitTex.wrapT=THREE.RepeatWrapping; suitTex.repeat.set(2,2);
+  const red  = new THREE.MeshStandardMaterial({map:suitTex, roughness:.42, metalness:.05});
+  const dark = new THREE.MeshStandardMaterial({color:0x0e1626, roughness:.5, metalness:.15});
   const blk  = new THREE.MeshStandardMaterial({color:0x0a0d14, roughness:.6});
   function limb(rTop,rBot,len,mat){
     const g = new THREE.Group();
@@ -375,6 +489,9 @@ const heroParts = {};
   const eyeMat = new THREE.MeshBasicMaterial({color:0xeef4ff});
   const eyes = [];
   for(const s of [-1,1]){
+    const rim = new THREE.Mesh(new THREE.SphereGeometry(.135,10,10), blk);  // black lens frame
+    rim.scale.set(.82,1.2,.3); rim.rotation.z = -.45*s;
+    rim.position.set(.12*s,1.09,.195); eyes.push(rim);
     const e = new THREE.Mesh(new THREE.SphereGeometry(.115,10,10), eyeMat);
     e.scale.set(.8,1.15,.35); e.rotation.z = -.45*s;
     e.position.set(.12*s,1.09,.21); eyes.push(e);
@@ -737,7 +854,10 @@ function collide(){
       S.wallNormal = n;
     }
   }
-  if(S.onGround && !wasGround && vyImpact < -9) AUD.land(Math.min(1, -vyImpact/45));
+  if(S.onGround && !wasGround && vyImpact < -9){
+    AUD.land(Math.min(1, -vyImpact/45));
+    if(S.fovPunch<=0) S.fovPunch = -4.5*Math.min(1,-vyImpact/45);     // brief camera compression
+  }
 }
 
 function step(dt){
@@ -926,6 +1046,7 @@ const pbPts=new THREE.Points(pbGeo,new THREE.PointsMaterial({color:0xfff2c0,size
 pbPts.frustumCulled=false; scene.add(pbPts);
 let pbI=0;
 function hitFx(p,heavy){
+  hitFlashEl.style.background = heavy? '#ffd9b0' : '#ffffff';  // warm flash for heavy hits
   hitFlashEl.style.opacity=heavy?.26:.13;
   clearTimeout(hitFx._t); hitFx._t=setTimeout(()=>hitFlashEl.style.opacity=0,45);
   S.fovPunch=Math.min(9,S.fovPunch+(heavy?5.5:2.8));
@@ -940,7 +1061,7 @@ function updateFx(dt){
     pbLife[j]-=dt; pbVel[j*3+1]-=30*dt;
     pbPos[j*3]+=pbVel[j*3]*dt; pbPos[j*3+1]+=pbVel[j*3+1]*dt; pbPos[j*3+2]+=pbVel[j*3+2]*dt; }
   pbGeo.attributes.position.needsUpdate=true;
-  if(S.fovPunch>0) S.fovPunch*=Math.pow(.0005,dt);
+  if(S.fovPunch!==0) S.fovPunch*=Math.pow(.0005,dt);
 }
 /* visible yank web line */
 const yankGeo=new THREE.BufferGeometry();
