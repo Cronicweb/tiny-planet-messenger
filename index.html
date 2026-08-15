@@ -424,7 +424,7 @@ const S = {
   swingSide:1,            // alternate hands like SM
   camShake:0,
   gliding:false, glideBank:0,
-  hp:100, atkCool:0, combo:0, comboT:0, dodgeT:0, dodgeCool:0,
+  hp:100, atkCool:0, combo:0, comboT:0, dodgeT:0, dodgeCool:0, hitStop:0,
 };
 const camFX = { prevHeading:0, tilt:0 };
 const GRAV = 30, MAXSPD = 92;
@@ -873,13 +873,14 @@ function makeEnemyMesh(t){
 }
 function spawnEnemy(kind,x,y,z){
   const t=ETYPES[kind], m=makeEnemyMesh(t); m.position.set(x,y,z); scene.add(m);
-  enemies.push({kind,t,mesh:m,hp:t.hp+ECON.lv*4,x,y,z,vx:0,vz:0,cool:1+Math.random(),
-    stun:0,yank:null,flash:0,alive:true});
+  enemies.push({kind,t,mesh:m,hp:t.hp+ECON.lv*4,dmg:t.dmg+Math.min(14,(ECON.lv-1)*2),
+    x,y,z,vx:0,vz:0,vy:0,pvx:0,pvz:0,cool:1+Math.random(),
+    stun:0,wind:0,thrown:0,proj:0,yank:null,flash:0,alive:true});
 }
 function killEnemy(e){
   e.alive=false; scene.remove(e.mesh);
   ECON.grant(15,25); S.combo++; S.comboT=2.4;
-  if(CRIME.active){ CRIME.left--; updateObjective(); if(CRIME.left<=0) CRIME.resolve(); }
+  if(CRIME.active){ CRIME.left--; updateObjective(); if(CRIME.left<=0) CRIME.next(); }
 }
 function nearestEnemy(maxD){
   let best=null,bd=maxD;
@@ -887,24 +888,55 @@ function nearestEnemy(maxD){
     const d=e.mesh.position.distanceTo(S.pos); if(d<bd){bd=d;best=e;} }
   return best;
 }
+/* soft target lock: favors the enemy you're looking at, not just the closest */
+function bestTarget(maxD){
+  const fx=-Math.sin(cam.h), fz=-Math.cos(cam.h);
+  let best=null,bs=1e9;
+  for(const e of enemies){ if(!e.alive) continue;
+    const d=e.mesh.position.distanceTo(S.pos); if(d>maxD) continue;
+    const dx=e.mesh.position.x-S.pos.x, dz=e.mesh.position.z-S.pos.z;
+    const hd=Math.hypot(dx,dz)||1;
+    const align=(dx*fx+dz*fz)/hd;              // -1..1 camera facing
+    const score=d-align*6;
+    if(score<bs){bs=score;best=e;} }
+  return best;
+}
+const lockRing=new THREE.Mesh(new THREE.RingGeometry(.9,1.15,24),
+  new THREE.MeshBasicMaterial({color:0xff4444,transparent:true,opacity:.8,side:THREE.DoubleSide,depthWrite:false}));
+lockRing.rotation.x=-Math.PI/2; lockRing.visible=false; scene.add(lockRing);
 function doPunch(){
   if(!started) return false;
-  if(S.atkCool>0) return !!nearestEnemy(7);   // mid-combo: consume click, don't fire a web
-  const e=nearestEnemy(7);
+  if(S.atkCool>0) return !!bestTarget(9);     // mid-combo: consume click, don't fire a web
+  const e=bestTarget(9);
   if(!e) return false;                       // no target -> caller treats LMB as swing
   const d=e.mesh.position.distanceTo(S.pos);
-  S.atkCool=.28;
-  if(d>3.2){                                  // lunge (web strike)
+  S.atkCool=.26;
+  if(d>3.4){                                  // web strike: lunge onto the soft-locked target
     _v.copy(e.mesh.position).sub(S.pos).normalize();
-    S.vel.copy(_v.multiplyScalar(26)); S.vel.y=Math.max(S.vel.y,4);
+    const sp=Math.max(26,S.vel.length());     // carry swing momentum into the strike
+    S.vel.copy(_v.multiplyScalar(sp)); S.vel.y=Math.max(S.vel.y,5);
     flash('WEB STRIKE'); AUD.thwip(); return true;
   }
-  const dmg=12+S.combo*2+(S.onGround?0:6);   // air attacks hit harder
-  e.hp-=dmg; e.flash=.15; e.stun=Math.max(e.stun,.35);
+  const spd=S.vel.length();
+  let dmg=12+S.combo*2+(S.onGround?0:6)+Math.floor(spd/12); // momentum bonus damage
+  let label='';
+  if(e.mesh.position.y>e.y+1){ dmg+=8; label='AERIAL RAVE'; }        // juggle hits
+  if(e.thrown>0){                             // just yanked in: hurl them into the crowd
+    _v.copy(e.mesh.position).sub(S.pos).setY(0).normalize();
+    e.pvx=_v.x*34; e.pvz=_v.z*34; e.vy=6; e.proj=.7; e.thrown=0; e.stun=1.4;
+    dmg+=6; label='WEB THROW';
+  }
+  e.hp-=dmg; e.flash=.15; e.stun=Math.max(e.stun,.4);
+  e.wind=0; e.mesh.scale.set(1,1,1);          // stagger interrupts their attack windup
+  S.hitStop=.09;
   _v.copy(e.mesh.position).sub(S.pos).setY(0).normalize();
-  e.vx+=_v.x*14; e.vz+=_v.z*14;
-  S.combo++; S.comboT=2.4; S.camShake=Math.max(S.camShake,.25);
+  const launcher=(S.combo>0 && (S.combo+1)%4===0);
+  if(launcher){ e.vy=Math.max(e.vy,9.5); e.vx=_v.x*8; e.vz=_v.z*8;   // every 4th hit pops them up
+    if(!label) label='LAUNCHED'; S.hitStop=.13; }
+  else { e.vx+=_v.x*15; e.vz+=_v.z*15; }
+  S.combo++; S.comboT=2.6; S.camShake=Math.max(S.camShake,launcher?.4:.25);
   AUD.punch();
+  if(label) flash(label);
   comboEl.textContent='x'+S.combo+' COMBO'; comboEl.classList.add('pop');
   clearTimeout(doPunch._t); doPunch._t=setTimeout(()=>comboEl.classList.remove('pop'),700);
   if(e.hp<=0){ killEnemy(e); flash(S.onGround?'KNOCKOUT':'AERIAL FINISHER'); AUD.whooshBig(); }
@@ -912,10 +944,11 @@ function doPunch(){
 }
 function tryYank(){
   if(!started) return false;
-  const e=nearestEnemy(34);
+  const e=bestTarget(34);
   if(!e || S.pos.distanceTo(e.mesh.position)<3) return false;
   e.yank={to:S.pos.clone().add(new THREE.Vector3(0,1,0)), t:.5};
-  e.stun=1.2; AUD.thwip(); flash('WEB YANK');
+  e.stun=1.2; e.wind=0; e.mesh.scale.set(1,1,1);
+  AUD.thwip(); flash('WEB YANK');
   return true;
 }
 function doDodge(){
@@ -937,7 +970,9 @@ function dmgPlayer(n){
 }
 function updateObjective(){
   if(CRIME.active){ objEl.style.display='block';
-    objEl.innerHTML='<b>'+CRIME.name+'</b> \u2014 defeat '+CRIME.left+' \u00B7 follow the red beacon'; }
+    objEl.innerHTML='<b>'+CRIME.name+'</b> \u2014 defeat '+CRIME.left
+      +(CRIME.waves>1?' \u00B7 wave '+CRIME.wave+'/'+CRIME.waves:'')
+      +' \u00B7 follow the red beacon'; }
   else objEl.style.display='none';
 }
 const CRIME=(()=>{
@@ -945,34 +980,57 @@ const CRIME=(()=>{
   const beacon=new THREE.Mesh(new THREE.CylinderGeometry(4,4,400,12,1,true), beaconMat);
   beacon.visible=false; beacon.frustumCulled=false; scene.add(beacon);
   const NAMES=['ROOFTOP ROBBERY','GANG STASH','ARMED HEIST','TURF WAR'];
+  const crate=new THREE.Mesh(new THREE.BoxGeometry(2.2,1.6,2.2),
+    new THREE.MeshStandardMaterial({color:0x8a6b2f, roughness:.8}));
+  crate.castShadow=true; crate.visible=false; scene.add(crate);
   const C={active:false,left:0,name:'',cool:14,site:new THREE.Vector3(),announced:false,
+    wave:1,waves:1,rmax:6,
+    spawnWave(){
+      const cx=C.site.x, cz=C.site.z, h=C.site.y;
+      const n=Math.min(8, 2+ECON.lv);
+      for(let i=0;i<n;i++){                    // ring around the stash, not random scatter
+        const a=i/n*Math.PI*2+Math.random()*.5;
+        const r=Math.min(C.rmax, 4+Math.random()*4);
+        const kind=(i===0&&(ECON.lv>1||C.wave>1))?'heavy'
+          :(Math.random()<Math.min(.55,.3+ECON.lv*.04)?'gunner':'thug');
+        spawnEnemy(kind, cx+Math.cos(a)*r, h, cz+Math.sin(a)*r);
+      }
+      C.left=n; updateObjective();
+    },
     start(){
-      // pick a roof 180..700m away with a decent footprint
-      let b=null;
-      for(let i=0;i<60;i++){
+      // prefer a roof roughly AHEAD of the camera, mid-range, decent footprint
+      let b=null,bs=-1e9;
+      const fx=-Math.sin(cam.h), fz=-Math.cos(cam.h);
+      for(let i=0;i<80;i++){
         const cand=buildings[(Math.random()*buildings.length)|0];
         const w=cand.max.x-cand.min.x, d=cand.max.z-cand.min.z, h=cand.max.y;
         const cx=(cand.min.x+cand.max.x)/2, cz=(cand.min.z+cand.max.z)/2;
         const dist=Math.hypot(cx-S.pos.x, cz-S.pos.z);
-        if(w>16&&d>16&&h>25&&h<175&&dist>180&&dist<700){ b=cand; break; }
+        if(!(w>16&&d>16&&h>25&&h<175&&dist>180&&dist<700)) continue;
+        const align=((cx-S.pos.x)*fx+(cz-S.pos.z)*fz)/dist;
+        const score=align*100-Math.abs(dist-320)*.1;
+        if(score>bs){bs=score;b=cand;}
       }
       if(!b) return;
       const cx=(b.min.x+b.max.x)/2, cz=(b.min.z+b.max.z)/2, h=b.max.y;
       C.site.set(cx,h,cz);
-      const n=Math.min(6, 2+ECON.lv);
-      for(let i=0;i<n;i++){
-        const kind=i===0&&ECON.lv>1?'heavy':(Math.random()<.35?'gunner':'thug');
-        const ox=(Math.random()-.5)*(b.max.x-b.min.x-6), oz=(Math.random()-.5)*(b.max.z-b.min.z-6);
-        spawnEnemy(kind, cx+ox, h, cz+oz);
-      }
-      C.left=n; C.name=NAMES[(Math.random()*NAMES.length)|0];
+      C.rmax=Math.max(3, Math.min(b.max.x-b.min.x, b.max.z-b.min.z)/2-3);
+      C.wave=1; C.waves=ECON.lv>=3?2:1;        // difficulty: reinforcement wave at LV3+
+      C.name=NAMES[(Math.random()*NAMES.length)|0];
       C.active=true; C.announced=false;
+      crate.position.set(cx,h+.8,cz); crate.visible=true;
       beacon.position.set(cx,h+200,cz); beacon.visible=true;
-      flash('\u26A0 CRIME REPORTED \u2014 '+C.name,2200); updateObjective();
+      C.spawnWave();
+      flash('\u26A0 CRIME REPORTED \u2014 '+C.name,2200);
+    },
+    next(){
+      if(C.wave<C.waves){ C.wave++; C.spawnWave(); flash('\u26A0 REINFORCEMENTS!',1800); }
+      else C.resolve();
     },
     resolve(){
-      C.active=false; beacon.visible=false; C.cool=16+Math.random()*14;
-      const xp=40+ECON.lv*20, cash=100+ECON.lv*50;
+      C.active=false; beacon.visible=false; crate.visible=false;
+      C.cool=16+Math.random()*14;
+      const xp=(40+ECON.lv*20)*C.waves, cash=(100+ECON.lv*50)*C.waves;
       ECON.grant(xp,cash);
       flash('\u2713 CRIME STOPPED  +'+xp+' XP  +$'+cash,2400); updateObjective();
     },
@@ -1005,33 +1063,68 @@ function updateCombat(dt){
     if(e.yank){                               // being pulled by web
       e.yank.t-=dt;
       m.position.lerp(S.pos, Math.min(1,dt*9));
-      if(e.yank.t<=0||m.position.distanceTo(S.pos)<2.2) e.yank=null;
+      if(e.yank.t<=0||m.position.distanceTo(S.pos)<2.2){
+        e.yank=null; e.thrown=1.2; e.vy=Math.max(e.vy,4);  // pops up: aerial/throw window
+      }
       continue;
     }
     if(e.stun>0){ e.stun-=dt; }
-    // knockback decay + keep on roof
-    m.position.x+=e.vx*dt; m.position.z+=e.vz*dt;
+    if(e.thrown>0) e.thrown-=dt;
+    // knockback / launch physics
+    m.position.x+=(e.vx+e.pvx)*dt; m.position.z+=(e.vz+e.pvz)*dt;
     e.vx*=Math.max(0,1-dt*5); e.vz*=Math.max(0,1-dt*5);
-    if(m.position.y>e.y) m.position.y=Math.max(e.y, m.position.y-30*dt);
+    e.vy-=25*dt;
+    m.position.y=Math.max(e.y, m.position.y+e.vy*dt);
+    if(m.position.y<=e.y) e.vy=Math.max(0,e.vy);
+    if(e.proj>0){                             // thrown body: bowls over other enemies
+      e.proj-=dt;
+      for(const o of enemies){ if(o===e||!o.alive) continue;
+        if(o.mesh.position.distanceTo(m.position)<2.4){
+          o.hp-=18; o.flash=.15; o.stun=1;
+          _v.copy(o.mesh.position).sub(m.position).setY(0).normalize();
+          o.vx+=_v.x*16; o.vz+=_v.z*16;
+          e.proj=0; flash('STRIKE!'); S.hitStop=.08;
+          if(o.hp<=0) killEnemy(o);
+          break;
+        } }
+      if(e.proj<=0){ e.pvx=e.pvz=0; }
+    }
     const dx=S.pos.x-m.position.x, dz=S.pos.z-m.position.z;
     const hd=Math.hypot(dx,dz), vd=Math.abs(S.pos.y-m.position.y);
     const engaged=hd<70&&vd<26;
     m.lookAt(S.pos.x, m.position.y, S.pos.z);
-    if(!engaged||e.stun>0){ e.cool=Math.max(e.cool,.4); continue; }
+    m.rotation.x=e.stun>0?-.4*Math.min(1,e.stun):0;   // stagger lean
+    if(!engaged||e.stun>0){
+      if(e.wind>0){ e.wind=0; m.scale.set(1,1,1); if(e.flash<=0) m.userData.mat.color.setHex(m.userData.baseCol); }
+      e.cool=Math.max(e.cool,.4); continue; }
+    if(e.wind>0){                             // attack telegraph: flash + pulse, dodge window
+      e.wind-=dt;
+      m.userData.mat.color.setHex(0xffa030);
+      const p=1+Math.sin(e.wind*40)*.05; m.scale.set(p,p,p);
+      if(e.wind<=0){
+        m.scale.set(1,1,1); if(e.flash<=0) m.userData.mat.color.setHex(m.userData.baseCol);
+        if(e.kind==='gunner'){ AUD.shot();
+          if(hd<t.range && Math.random()>Math.min(.75,S.vel.length()/70)) dmgPlayer(e.dmg);
+          else flash('MISSED!');
+        } else if(hd<t.range+.8 && vd<3.4) dmgPlayer(e.dmg);
+      }
+      continue;
+    }
     if(e.kind==='gunner'){
       if(hd>16){ m.position.x+=dx/hd*t.speed*dt; m.position.z+=dz/hd*t.speed*dt; }
       e.cool-=dt;
-      if(e.cool<=0 && hd<t.range){ e.cool=t.cool; AUD.shot();
-        // moving fast = hard to hit
-        if(Math.random()>Math.min(.75,S.vel.length()/70)) dmgPlayer(t.dmg);
-        else flash('MISSED!');
-      }
+      if(e.cool<=0 && hd<t.range){ e.cool=t.cool; e.wind=.6; }
     } else {
       if(hd>t.range*.9){ m.position.x+=dx/hd*t.speed*dt; m.position.z+=dz/hd*t.speed*dt; }
       e.cool-=dt;
-      if(e.cool<=0 && hd<t.range && vd<3){ e.cool=t.cool; dmgPlayer(t.dmg); }
+      if(e.cool<=0 && hd<t.range && vd<3){ e.cool=t.cool; e.wind=.45; }
     }
   }
+  // soft-lock reticle under the current target
+  const lt=bestTarget(26);
+  if(lt){ lockRing.visible=true;
+    lockRing.position.set(lt.mesh.position.x, lt.y+.06, lt.mesh.position.z); }
+  else lockRing.visible=false;
 }
 
 /* ================= VISUALS ================= */
@@ -1188,6 +1281,7 @@ let last=performance.now();
 function loop(now){
   requestAnimationFrame(loop);
   let dt=Math.min(.033,(now-last)/1000); last=now;
+  if(S.hitStop>0){ S.hitStop-=dt; dt*=.12; }   // hit-stop: brief time freeze on impact
   updateCars(dt);
   if(started){
     const SUB=3;
