@@ -91,8 +91,8 @@
 <canvas id="streaks"></canvas>
 <div id="hud"><div class="title">WEB <b>SLINGER</b> // FREE ROAM</div><div id="hpbar"><div id="hpfill"></div></div><div id="econ">LV 1 · 0/100 XP · $0</div></div>
 <div id="keys">
-  <kbd>SPACE</kbd> ground: jump · air (hold): swing · release at arc peak: launch<br/>
-  <kbd>SHIFT</kbd> hold: sprint on ground / dive in air &nbsp; <kbd>E</kbd> zip &nbsp; <kbd>F</kbd> web wings &nbsp; <kbd>W A S D</kbd> steer (works mid-swing)<br/>
+  <kbd>SPACE</kbd> jump &nbsp; <kbd>SHIFT</kbd> hold in air: web swing · release at arc peak &nbsp; <kbd>W</kbd>+<kbd>SHIFT</kbd> sprint<br/>
+  <kbd>CTRL</kbd>/<kbd>C</kbd> dive &nbsp; <kbd>E</kbd> zip &nbsp; <kbd>F</kbd> web wings &nbsp; <kbd>A</kbd>/<kbd>D</kbd> left / right (works mid-swing)<br/>
   <kbd>LMB</kbd> punch near foes · hold: swing &nbsp; <kbd>Q</kbd> web-yank / air trick &nbsp; <kbd>SHIFT</kbd> near foes: dodge<br/>
   <kbd>R</kbd> respawn &nbsp; <kbd>M</kbd> mute &nbsp; <kbd>V</kbd> weather &nbsp; <kbd>MOUSE</kbd> camera
 </div>
@@ -115,10 +115,11 @@
   <div class="card">
     <h1><span class="n">WEB</span> <span class="r">SLINGER</span> 2</h1>
     <p>
-      A swinging sandbox inspired by the modern web-head games. <b>SPACE</b> jumps on the ground and
-      <b>holds a web</b> in the air — carve with <b>A/D</b> mid-swing, release at the peak and chain into
-      the next one. Hold <b>SHIFT</b> to sprint on foot or dive for raw speed, <b>E</b> point-launches off
-      rooftops. On phones: left stick moves, drag anywhere to look, buttons swing / jump / zip / attack.
+      A swinging sandbox inspired by the modern web-head games. <b>SPACE</b> jumps,
+      <b>hold SHIFT in the air</b> to fire a web and swing — carve with <b>A/D</b>, release at the
+      peak and chain into the next one. <b>W + SHIFT</b> sprints, <b>CTRL</b> dives for raw speed,
+      <b>E</b> point-launches off rooftops. On phones: left stick moves, drag anywhere to look,
+      buttons swing / jump / zip / attack.
     </p>
     <div class="go">▶ &nbsp;CLICK TO SWING</div>
   </div>
@@ -772,7 +773,7 @@ anchorFlash.visible=false; scene.add(anchorFlash);
 const heroBlob=makeBlob(2.6); heroBlob.position.y=-999;    // hero contact shadow
 
 /* ---- skinned hero: three.js Xbot (same model as webgl_animation_skinning_additive_blending) ---- */
-const RIG={ready:false,mixer:null,actions:{},current:null,model:null};
+const RIG={ready:false,mixer:null,actions:{},current:null,model:null,swingBlend:0};
 function rigPlay(name,fade,ts){
   const a=RIG.actions[name]; if(!a) return;
   if(RIG.current!==a){ a.reset().fadeIn(fade).play(); if(RIG.current) RIG.current.fadeOut(fade); RIG.current=a; }
@@ -792,10 +793,62 @@ function rigPlay(name,fade,ts){
         ()=>loader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/Xbot.glb',res,undefined,rej));
     });
     const model=glb.scene;
-    model.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.frustumCulled=false; } });
+    /* ---- red/blue suit: vertex-paint by dominant bone region ---- */
+    const RED=new THREE.Color(0xd01128), DRED=new THREE.Color(0x8f0c1c), BLUE=new THREE.Color(0x1a3fbf);
+    const redRe=/Head|Neck|Spine2|Shoulder|Arm|ForeArm|Hand|Foot|Toe/i;   // mask, chest, arms, gloves, boots
+    function paintSuit(mesh){
+      const g=mesh.geometry, pos=g.attributes.position, si=g.attributes.skinIndex, sw=g.attributes.skinWeight;
+      if(!si||!sw) return;
+      const bones=mesh.skeleton.bones, col=new Float32Array(pos.count*3);
+      for(let i=0;i<pos.count;i++){
+        let best=0,bw=-1;
+        for(let k=0;k<4;k++){ const w=sw.getComponent(i,k); if(w>bw){bw=w;best=si.getComponent(i,k);} }
+        const nm=bones[best]?bones[best].name:'';
+        const c=redRe.test(nm)?(/Hand|Foot|Toe/i.test(nm)?DRED:RED):BLUE;
+        col[i*3]=c.r; col[i*3+1]=c.g; col[i*3+2]=c.b;
+      }
+      g.setAttribute('color', new THREE.BufferAttribute(col,3));
+      mesh.material=new THREE.MeshStandardMaterial({vertexColors:true,roughness:.5,metalness:.08});
+    }
+    model.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.frustumCulled=false; if(o.isSkinnedMesh) paintSuit(o); } });
     model.scale.setScalar(1.62); model.position.y=-1.62;
     hero.add(model);
     for(const p of hero.userData.bodyParts) p.visible=false;   // stylised hero stays as fallback
+    /* ---- bone handles for procedural overrides (swing arm, lean, face) ---- */
+    RIG.bones={};
+    model.traverse(o=>{
+      if(!o.isBone) return;
+      if(/RightArm$/.test(o.name)) RIG.bones.armR=o;
+      if(/RightForeArm$/.test(o.name)) RIG.bones.foreR=o;
+      if(/RightHand$/.test(o.name)) RIG.bones.handR=o;
+      if(/LeftArm$/.test(o.name)) RIG.bones.armL=o;
+      if(/(^|:|_)Spine1$/.test(o.name)||/Spine1$/.test(o.name)) RIG.bones.spine=o;
+      if(/Head$/.test(o.name)) RIG.bones.head=o;
+    });
+    /* ---- detailed mask face: big white lenses w/ black rims + brow ridge, glued to the head bone ---- */
+    if(RIG.bones.head){
+      hero.updateMatrixWorld(true);
+      const head=RIG.bones.head;
+      const hp=new THREE.Vector3(); head.getWorldPosition(hp);
+      const heroFwd=new THREE.Vector3(0,0,1).applyQuaternion(hero.quaternion);   // Xbot faces +Z
+      const face=new THREE.Group();
+      const lensGeo=new THREE.SphereGeometry(.085,20,14); lensGeo.scale(1,1.5,.32);
+      const lensMat=new THREE.MeshBasicMaterial({color:0xf4f7ff});
+      const rimMat=new THREE.MeshBasicMaterial({color:0x0c0c14});
+      for(const s of [-1,1]){
+        const rim=new THREE.Mesh(lensGeo,rimMat); rim.scale.multiplyScalar(1.22);
+        const eye=new THREE.Mesh(lensGeo,lensMat);
+        for(const [m,z] of [[rim,0],[eye,.012]]){
+          m.position.set(s*.095,.03,z); m.rotation.z=s*-.42; m.rotation.y=s*.28; face.add(m);
+        }
+      }
+      const brow=new THREE.Mesh(new THREE.BoxGeometry(.24,.03,.03), rimMat);
+      brow.position.set(0,.135,-.01); face.add(brow);
+      face.position.copy(hp).addScaledVector(heroFwd,.145); face.position.y+=.07;
+      face.quaternion.copy(hero.quaternion);
+      scene.add(face); head.attach(face);   // keeps world transform, rides the head bone
+      RIG.face=face;
+    }
     RIG.mixer=new THREE.AnimationMixer(model);
     for(const clip of glb.animations) RIG.actions[clip.name]=RIG.mixer.clipAction(clip);
     RIG.model=model; RIG.ready=true;
@@ -860,7 +913,7 @@ addEventListener('mousedown', e=>{ if(IS_TOUCH) return; if(e.button===0){ if(!do
 addEventListener('mouseup',   e=>{ if(e.button===0) swingHeld=false; });
 addEventListener('keydown', e=>{
   keys[e.code]=true;
-  if(e.code==='Space'){ if(!e.repeat){ if(S.onGround && !S.attached) doJump(); swingHeld=true; } e.preventDefault(); }
+  if(e.code==='Space'){ if(!e.repeat && S.onGround && !S.attached) doJump(); e.preventDefault(); }
   if(e.code==='KeyR') respawn();
   if(e.code==='KeyE') tryZip();
   if(e.code==='KeyQ'){ if(!tryYank()) doTrick(); }
@@ -870,7 +923,6 @@ addEventListener('keydown', e=>{
 });
 addEventListener('keyup', e=>{
   keys[e.code]=false;
-  if(e.code==='Space') swingHeld=false;
 });
 addEventListener('resize', ()=>{
   camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
@@ -1199,11 +1251,13 @@ function collide(dt){
 }
 
 function step(dt){
-  /* swing intent */
-  if(swingHeld && !S.attached && !S.zipping){
+  /* swing intent \u2014 LMB / SWING button, or SHIFT while airborne */
+  const shiftDown = keys['ShiftLeft']||keys['ShiftRight'];
+  const wantSwing = swingHeld || (shiftDown && !S.onGround);
+  if(wantSwing && !S.attached && !S.zipping){
     const a=findSwingAnchor();
     if(a) attach(a);
-  } else if(!swingHeld && S.attached) detach();
+  } else if(!wantSwing && S.attached) detach();
 
   /* zipping = strong homing pull */
   if(S.zipping){
@@ -1221,7 +1275,7 @@ function step(dt){
   S.vel.y -= GRAV*dt;
 
   /* dive: SM2's shift-dive trades height for speed */
-  S.diving = (keys['ShiftLeft']||keys['ShiftRight']) && !S.onGround && !S.zipping;
+  S.diving = (keys['ControlLeft']||keys['ControlRight']||keys['KeyC']) && !S.onGround && !S.zipping && !S.attached;
   if(S.diving){
     S.vel.y -= 55*dt;
     const f=camForward().setY(0).normalize();
@@ -1249,8 +1303,8 @@ function step(dt){
 
   /* steering */
   const f=_v.set(-Math.sin(cam.h),0,-Math.cos(cam.h));
-  const rgt=_v2.set(f.z,0,-f.x);
-  S.sprint=(keys['ShiftLeft']||keys['ShiftRight']) && S.onGround && !S.diving;
+  const rgt=_v2.set(-f.z,0,f.x);
+  S.sprint=(keys['ShiftLeft']||keys['ShiftRight']) && keys['KeyW'] && S.onGround && !S.diving;
   const gCap=S.sprint? 34 : 17;                                   // walk / sprint top speed
   const hs0=Math.hypot(S.vel.x,S.vel.z);
   const acc = S.onGround? ((hs0<gCap)? (S.sprint?130:70) : 0) : S.attached? 30 : 15;
@@ -1488,7 +1542,7 @@ function doDodge(){
   if(S.dodgeCool>0) return;
   S.dodgeT=.42; S.dodgeCool=1;
   const f=_v.set(-Math.sin(cam.h),0,-Math.cos(cam.h));
-  const rgt=_v2.set(f.z,0,-f.x);
+  const rgt=_v2.set(-f.z,0,f.x);
   let dx=0,dz=0;
   if(keys['KeyA']){dx-=rgt.x;dz-=rgt.z;} if(keys['KeyD']){dx+=rgt.x;dz+=rgt.z;}
   if(keys['KeyS']){dx-=f.x;dz-=f.z;} else if(!dx&&!dz){dx=f.x;dz=f.z;}
@@ -1770,6 +1824,8 @@ function updateCombat(dt){
 /* ================= VISUALS ================= */
 const heroQuatTarget=new THREE.Quaternion();
 const eul=new THREE.Euler();
+const _rv1=new THREE.Vector3(), _rv2=new THREE.Vector3(), _YUP=new THREE.Vector3(0,1,0);
+const _rq1=new THREE.Quaternion(), _rq2=new THREE.Quaternion();
 function updateVisuals(dt, now){
   hero.position.copy(S.pos);
 
@@ -1801,6 +1857,29 @@ function updateVisuals(dt, now){
     else if(hsA>2.5) rigPlay(S.sprint?'run':'walk',.18,Math.min(1.9,.6+hsA/9));
     else rigPlay('idle',.25,1);
     RIG.mixer.update(dt);
+    /* procedural bone pass (after mixer): web-arm raise + body english */
+    const B=RIG.bones;
+    RIG.swingBlend += ((S.attached?1:0)-RIG.swingBlend)*Math.min(1,dt*9);
+    if(B){
+      if(S.attached && B.armR){
+        /* aim the whole right arm up the web line (mixamo bones: +Y runs along the bone) */
+        for(const b of [B.armR, B.foreR]){
+          if(!b) continue;
+          b.updateWorldMatrix(true,false);
+          _rv1.setFromMatrixPosition(b.matrixWorld);
+          _rv2.copy(S.anchor).sub(_rv1).normalize();
+          b.parent.getWorldQuaternion(_rq1);
+          _rq2.setFromUnitVectors(_YUP,_rv2);
+          _rq1.invert().multiply(_rq2);
+          b.quaternion.slerp(_rq1, RIG.swingBlend);
+        }
+        if(B.armL) B.armL.rotation.z += .55*RIG.swingBlend;          // off-arm flares out for balance
+        if(B.spine) B.spine.rotation.x += .28*RIG.swingBlend;        // chest opens up into the swing
+      } else if(S.onGround && B.spine){
+        const hsB=Math.hypot(S.vel.x,S.vel.z);
+        if(hsB>4) B.spine.rotation.x += Math.min(.4, hsB*.011);   // lean into the run/sprint
+      }
+    }
   } else if(S.punchT>0||S.yankT>0){                  // combat poses override locomotion
     const atkArm=S.punchArm>0?armR:armL, offArm=S.punchArm>0?armL:armR;
     if(S.yankT>0){                            // arm thrown out toward the yanked enemy
