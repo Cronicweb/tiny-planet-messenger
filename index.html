@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
 <title>WEB SLINGER 2 — Swinging Prototype</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
-  html,body{width:100%;height:100%;overflow:hidden;background:#87b8e8;font-family:'Segoe UI',system-ui,sans-serif}
+  html,body{width:100%;height:100%;overflow:hidden;touch-action:none;background:#87b8e8;font-family:'Segoe UI',system-ui,sans-serif}
   canvas{display:block}
   /* ---- SM2-style minimal white HUD ---- */
   #hud{position:fixed;top:22px;left:26px;color:#fff;z-index:10;user-select:none;pointer-events:none;
@@ -41,6 +41,24 @@
            display:none;align-items:center;justify-content:center;color:#fff;font-size:9px;font-weight:800;letter-spacing:1px}
   #vignette{position:fixed;inset:0;z-index:5;pointer-events:none;
             background:radial-gradient(ellipse at center,transparent 62%,rgba(0,0,20,.35) 100%)}
+  /* ---- touch controls (coarse pointers only) ---- */
+  #touchui{display:none;position:fixed;inset:0;z-index:20;pointer-events:none}
+  body.touch #touchui{display:block}
+  body.touch #keys{display:none}
+  #joy{position:absolute;left:24px;bottom:28px;width:126px;height:126px;border:2px solid rgba(255,255,255,.35);
+       border-radius:50%;pointer-events:auto;touch-action:none;background:rgba(255,255,255,.07)}
+  #joyKnob{position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px 0 0 -27px;border-radius:50%;
+       background:rgba(255,255,255,.38);pointer-events:none}
+  .tbtn{position:absolute;pointer-events:auto;touch-action:none;border-radius:50%;color:#fff;font-weight:800;
+       font-size:11px;letter-spacing:1px;display:flex;align-items:center;justify-content:center;
+       background:rgba(18,28,58,.5);border:2px solid rgba(255,255,255,.42);user-select:none;-webkit-user-select:none;
+       text-shadow:0 1px 4px rgba(0,0,0,.6)}
+  .tbtn:active{background:rgba(127,212,255,.55)}
+  #btnSwing{right:22px;bottom:92px;width:92px;height:92px;font-size:13px}
+  #btnJump{right:128px;bottom:32px;width:68px;height:68px}
+  #btnZip{right:26px;bottom:206px;width:56px;height:56px}
+  #btnAtk{right:132px;bottom:122px;width:56px;height:56px}
+  #btnSprint{right:216px;bottom:30px;width:56px;height:56px;font-size:9px}
   #overlay{position:fixed;inset:0;z-index:30;display:flex;align-items:flex-end;cursor:pointer;
            background:linear-gradient(to top,rgba(8,10,25,.92) 0%,rgba(8,10,25,.25) 55%,transparent 100%)}
   #overlay .card{color:#fff;padding:56px 64px;max-width:760px}
@@ -73,9 +91,9 @@
 <canvas id="streaks"></canvas>
 <div id="hud"><div class="title">WEB <b>SLINGER</b> // FREE ROAM</div><div id="hpbar"><div id="hpfill"></div></div><div id="econ">LV 1 · 0/100 XP · $0</div></div>
 <div id="keys">
-  <kbd>SPACE</kbd> hold: swing · release: launch<br/>
-  <kbd>E</kbd> zip to point &nbsp; <kbd>SHIFT</kbd> dive &nbsp; <kbd>F</kbd> web wings &nbsp; <kbd>W A S D</kbd> steer<br/>
-  <kbd>LMB</kbd> punch near foes &nbsp; <kbd>Q</kbd> web-yank / air trick &nbsp; <kbd>SHIFT</kbd> ground: dodge<br/>
+  <kbd>SPACE</kbd> ground: jump · air (hold): swing · release at arc peak: launch<br/>
+  <kbd>SHIFT</kbd> hold: sprint on ground / dive in air &nbsp; <kbd>E</kbd> zip &nbsp; <kbd>F</kbd> web wings &nbsp; <kbd>W A S D</kbd> steer (works mid-swing)<br/>
+  <kbd>LMB</kbd> punch near foes · hold: swing &nbsp; <kbd>Q</kbd> web-yank / air trick &nbsp; <kbd>SHIFT</kbd> near foes: dodge<br/>
   <kbd>R</kbd> respawn &nbsp; <kbd>M</kbd> mute &nbsp; <kbd>V</kbd> weather &nbsp; <kbd>MOUSE</kbd> camera
 </div>
 <div id="speedo"><div class="ring"><svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="44"/><circle class="prog" cx="50" cy="50" r="44"/></svg><div class="inner"><div class="num">0</div><div class="unit">MPH</div></div></div></div>
@@ -85,14 +103,22 @@
 <div id="trick"><small>STYLE</small><span id="trickName">SWAN DIVE</span></div>
 <div id="objective"></div>
 <div id="combo"></div>
+<div id="touchui">
+  <div id="joy"><div id="joyKnob"></div></div>
+  <div class="tbtn" id="btnSwing">SWING</div>
+  <div class="tbtn" id="btnJump">JUMP</div>
+  <div class="tbtn" id="btnZip">ZIP</div>
+  <div class="tbtn" id="btnAtk">ATK</div>
+  <div class="tbtn" id="btnSprint">SPRINT</div>
+</div>
 <div id="overlay">
   <div class="card">
     <h1><span class="n">WEB</span> <span class="r">SLINGER</span> 2</h1>
     <p>
-      A swinging sandbox inspired by the modern web-head games. Webs attach <b>automatically</b> to the
-      best anchor above you — just hold <b>SPACE</b>, carve with <b>A/D</b>, release at the peak of the arc
-      and chain into the next swing. <b>SHIFT</b>-dive to trade height for raw speed, then <b>E</b> point-launch
-      off rooftops. Momentum is everything.
+      A swinging sandbox inspired by the modern web-head games. <b>SPACE</b> jumps on the ground and
+      <b>holds a web</b> in the air — carve with <b>A/D</b> mid-swing, release at the peak and chain into
+      the next one. Hold <b>SHIFT</b> to sprint on foot or dive for raw speed, <b>E</b> point-launches off
+      rooftops. On phones: left stick moves, drag anywhere to look, buttons swing / jump / zip / attack.
     </p>
     <div class="go">▶ &nbsp;CLICK TO SWING</div>
   </div>
@@ -720,6 +746,7 @@ const heroParts = {};
   const legR = limb(.13,.1,.92,dark); legR.position.set(.2,-.5,0);
   hero.add(torso,chestEmblem,hips,head,...eyes,armL,armR,legL,legR);
   Object.assign(heroParts,{armL,armR,legL,legR,torso,head});
+  hero.userData.bodyParts=[torso,chestEmblem,hips,head,...eyes,armL,armR,legL,legR];
 }
 
 /* web-wings membranes (SM2 glide) */
@@ -743,6 +770,38 @@ const anchorFlash=new THREE.Sprite(new THREE.SpriteMaterial({map:softWhiteTex, c
   transparent:true, blending:THREE.AdditiveBlending, depthWrite:false}));
 anchorFlash.visible=false; scene.add(anchorFlash);
 const heroBlob=makeBlob(2.6); heroBlob.position.y=-999;    // hero contact shadow
+
+/* ---- skinned hero: three.js Xbot (same model as webgl_animation_skinning_additive_blending) ---- */
+const RIG={ready:false,mixer:null,actions:{},current:null,model:null};
+function rigPlay(name,fade,ts){
+  const a=RIG.actions[name]; if(!a) return;
+  if(RIG.current!==a){ a.reset().fadeIn(fade).play(); if(RIG.current) RIG.current.fadeOut(fade); RIG.current=a; }
+  a.timeScale=ts;
+}
+(async()=>{
+  try{
+    let GLTFLoader=null;
+    for(const u of [
+      'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js/+esm',
+      'https://esm.sh/three@0.160.0/examples/jsm/loaders/GLTFLoader.js',
+    ]){ try{ const m=await import(u); if(m&&m.GLTFLoader){ GLTFLoader=m.GLTFLoader; break; } }catch(e){ console.warn('GLTFLoader CDN failed',u,e); } }
+    if(!GLTFLoader) return;
+    const loader=new GLTFLoader();
+    const glb=await new Promise((res,rej)=>{
+      loader.load('https://threejs.org/examples/models/gltf/Xbot.glb',res,undefined,
+        ()=>loader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/Xbot.glb',res,undefined,rej));
+    });
+    const model=glb.scene;
+    model.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.frustumCulled=false; } });
+    model.scale.setScalar(1.62); model.position.y=-1.62;
+    hero.add(model);
+    for(const p of hero.userData.bodyParts) p.visible=false;   // stylised hero stays as fallback
+    RIG.mixer=new THREE.AnimationMixer(model);
+    for(const clip of glb.animations) RIG.actions[clip.name]=RIG.mixer.clipAction(clip);
+    RIG.model=model; RIG.ready=true;
+    rigPlay('idle',.2,1);
+  }catch(e){ console.warn('Xbot load failed \u2014 using stylised fallback hero',e); }
+})();
 
 /* speed lines particles */
 const SPEEDLINES = 90;
@@ -797,15 +856,15 @@ addEventListener('mousemove', e=>{
   cam.h -= e.movementX*.0023; cam.v -= e.movementY*.002;
   cam.v = Math.max(-1.3, Math.min(1.3, cam.v));
 });
-addEventListener('mousedown', e=>{ if(e.button===0){ if(!doPunch()) swingHeld=true; } });
+addEventListener('mousedown', e=>{ if(IS_TOUCH) return; if(e.button===0){ if(!doPunch()) swingHeld=true; } });
 addEventListener('mouseup',   e=>{ if(e.button===0) swingHeld=false; });
 addEventListener('keydown', e=>{
   keys[e.code]=true;
-  if(e.code==='Space'){ swingHeld=true; e.preventDefault(); }
+  if(e.code==='Space'){ if(!e.repeat){ if(S.onGround && !S.attached) doJump(); swingHeld=true; } e.preventDefault(); }
   if(e.code==='KeyR') respawn();
   if(e.code==='KeyE') tryZip();
   if(e.code==='KeyQ'){ if(!tryYank()) doTrick(); }
-  if((e.code==='ShiftLeft'||e.code==='ShiftRight') && S.onGround) doDodge();
+  if((e.code==='ShiftLeft'||e.code==='ShiftRight') && S.onGround && nearestEnemy(14)) doDodge();  // no foes near = sprint instead
   if(e.code==='KeyM') AUD.toggle();
   if(e.code==='KeyV') WX.cycle();
 });
@@ -818,7 +877,55 @@ addEventListener('resize', ()=>{
   renderer.setSize(innerWidth,innerHeight);
   sizeStreaks();
 });
+
+/* ================= TOUCH / MOBILE CONTROLS ================= */
+const IS_TOUCH = matchMedia('(pointer:coarse)').matches || 'ontouchstart' in window;
+if(IS_TOUCH){
+  document.body.classList.add('touch');
+  const joy=$('joy'), knob=$('joyKnob');
+  let joyId=null, camId=null, camX=0, camY=0;
+  function joyApply(e){
+    const r=joy.getBoundingClientRect();
+    let dx=e.clientX-(r.left+r.width/2), dy=e.clientY-(r.top+r.height/2);
+    const m=Math.hypot(dx,dy), R=r.width/2;
+    if(m>R){ dx*=R/m; dy*=R/m; }
+    knob.style.transform='translate('+dx+'px,'+dy+'px)';
+    const nx=dx/R, ny=dy/R;
+    keys['KeyW']=ny<-.28; keys['KeyS']=ny>.28; keys['KeyA']=nx<-.28; keys['KeyD']=nx>.28;
+  }
+  function joyReset(){ knob.style.transform=''; keys['KeyW']=keys['KeyS']=keys['KeyA']=keys['KeyD']=false; }
+  joy.addEventListener('pointerdown',e=>{ joyId=e.pointerId; try{joy.setPointerCapture(joyId);}catch(x){} joyApply(e); e.preventDefault(); });
+  joy.addEventListener('pointermove',e=>{ if(e.pointerId===joyId) joyApply(e); });
+  joy.addEventListener('pointerup',e=>{ if(e.pointerId===joyId){ joyId=null; joyReset(); } });
+  joy.addEventListener('pointercancel',()=>{ joyId=null; joyReset(); });
+  /* drag anywhere on the world = camera */
+  renderer.domElement.addEventListener('pointerdown',e=>{ if(camId===null){ camId=e.pointerId; camX=e.clientX; camY=e.clientY; } });
+  addEventListener('pointermove',e=>{ if(e.pointerId===camId){
+    cam.h-=(e.clientX-camX)*.0045; cam.v-=(e.clientY-camY)*.004;
+    cam.v=Math.max(-1.3,Math.min(1.3,cam.v)); camX=e.clientX; camY=e.clientY; } });
+  addEventListener('pointerup',e=>{ if(e.pointerId===camId) camId=null; });
+  addEventListener('pointercancel',e=>{ if(e.pointerId===camId) camId=null; });
+  function bindBtn(id,down,up){
+    const el=$(id);
+    el.addEventListener('pointerdown',e=>{ e.preventDefault(); e.stopPropagation(); down(); });
+    if(up){ el.addEventListener('pointerup',e=>{ e.preventDefault(); up(); });
+            el.addEventListener('pointercancel',()=>up()); }
+  }
+  bindBtn('btnSwing', ()=>{ if(!started) return; if(S.onGround&&!S.attached) doJump(); swingHeld=true; }, ()=>{ swingHeld=false; });
+  bindBtn('btnJump',  ()=>{ if(started) doJump(); });
+  bindBtn('btnZip',   ()=>{ if(started) tryZip(); });
+  bindBtn('btnAtk',   ()=>{ if(started){ if(!doPunch()) tryYank(); } });
+  bindBtn('btnSprint',()=>{ keys['ShiftLeft']=true; }, ()=>{ keys['ShiftLeft']=false; });
+}
 function respawn(){ S.pos.set(0,120,300); S.vel.set(0,0,-22); detach(); S.zipping=false; flash('RESPAWNED'); }
+function doJump(){
+  if(!S.onGround) return false;
+  const hs=Math.hypot(S.vel.x,S.vel.z);
+  S.vel.y=Math.max(S.vel.y, 15.5+Math.min(6,hs*.1));   // sprint jumps carry further
+  S.onGround=false;
+  try{ AUD.release(); }catch(e){}
+  return true;
+}
 function flash(t, ms=1100){ actionEl.textContent=t; actionEl.style.opacity=1;
   clearTimeout(flash._t); flash._t=setTimeout(()=>actionEl.style.opacity=0, ms); }
 
@@ -1051,10 +1158,15 @@ function doTrick(){
 }
 
 /* ================= PHYSICS ================= */
-function collide(){
+function groundFric(dt){
+  const moving=keys['KeyW']||keys['KeyA']||keys['KeyS']||keys['KeyD'];
+  const k=Math.pow(moving? .5 : .004, dt);   // gentle while steering, quick stop when idle
+  S.vel.x*=k; S.vel.z*=k;
+}
+function collide(dt){
   const wasGround=S.onGround, vyImpact=S.vel.y;
   S.onGround=false; S.wallNormal=null;
-  if(S.pos.y<1.7){ S.pos.y=1.7; if(S.vel.y<0)S.vel.y=0; S.vel.x*=.9; S.vel.z*=.9; S.onGround=true; S.groundY=0; }
+  if(S.pos.y<1.7){ S.pos.y=1.7; if(S.vel.y<0)S.vel.y=0; groundFric(dt); S.onGround=true; S.groundY=0; }
   const r=.85;
   for(const b of buildings){
     if(S.pos.x<b.min.x-r||S.pos.x>b.max.x+r) continue;
@@ -1069,7 +1181,7 @@ function collide(){
     ].sort((a,c)=>a.d-c.d)[0];
     if(pens.ax==='y'){
       S.pos.y=b.max.y+r; if(S.vel.y<0)S.vel.y=0;
-      S.vel.x*=.92; S.vel.z*=.92; S.onGround=true; S.groundY=b.max.y;
+      groundFric(dt); S.onGround=true; S.groundY=b.max.y;
     }else{
       // wall contact -> possible wall run
       const n = pens.ax==='x'? new THREE.Vector3(pens.s,0,0):new THREE.Vector3(0,0,pens.s);
@@ -1138,11 +1250,21 @@ function step(dt){
   /* steering */
   const f=_v.set(-Math.sin(cam.h),0,-Math.cos(cam.h));
   const rgt=_v2.set(f.z,0,-f.x);
-  const acc = S.onGround? 60 : S.attached? 26 : 15;
+  S.sprint=(keys['ShiftLeft']||keys['ShiftRight']) && S.onGround && !S.diving;
+  const gCap=S.sprint? 34 : 17;                                   // walk / sprint top speed
+  const hs0=Math.hypot(S.vel.x,S.vel.z);
+  const acc = S.onGround? ((hs0<gCap)? (S.sprint?130:70) : 0) : S.attached? 30 : 15;
   if(keys['KeyW']) S.vel.addScaledVector(f, acc*dt);
   if(keys['KeyS']) S.vel.addScaledVector(f, -acc*.6*dt);
   if(keys['KeyA']) S.vel.addScaledVector(rgt, -acc*.8*dt);
   if(keys['KeyD']) S.vel.addScaledVector(rgt, acc*.8*dt);
+  /* strong carve while swinging \u2014 A/D really steer the arc, W pumps forward */
+  if(S.attached){
+    const lat=(keys['KeyD']?1:0)-(keys['KeyA']?1:0);
+    if(lat) S.vel.addScaledVector(rgt, lat*44*dt);
+    if(keys['KeyW']) S.vel.addScaledVector(f, 20*dt);
+  }
+  if(S.sprint && hs0>3) flashOnce('SPRINT');
 
   /* wall run: touching wall + holding W + some speed -> run up */
   if(S.wallNormal && keys['KeyW'] && !S.attached){
@@ -1178,7 +1300,7 @@ function step(dt){
   const spd=S.vel.length();
   if(spd>MAXSPD) S.vel.multiplyScalar(MAXSPD/spd);
 
-  collide();
+  collide(dt);
 
   /* fell to street while swinging? keep momentum, run */
   if(S.trickTimer>0) S.trickTimer-=dt;
@@ -1670,7 +1792,16 @@ function updateVisuals(dt, now){
 
   /* limb animation */
   const {armL,armR,legL,legR}=heroParts;
-  if(S.punchT>0||S.yankT>0){                  // combat poses override locomotion
+  if(RIG.ready){                              // skinned Xbot: idle/walk/run blending
+    const hsA=Math.hypot(S.vel.x,S.vel.z);
+    if(S.attached) rigPlay('idle',.18,.6);
+    else if(S.gliding) rigPlay('idle',.2,.35);
+    else if(!S.onGround) rigPlay('run',.22,.35);
+    else if(hsA>16) rigPlay('run',.14,Math.min(1.7,.7+hsA/26));
+    else if(hsA>2.5) rigPlay(S.sprint?'run':'walk',.18,Math.min(1.9,.6+hsA/9));
+    else rigPlay('idle',.25,1);
+    RIG.mixer.update(dt);
+  } else if(S.punchT>0||S.yankT>0){                  // combat poses override locomotion
     const atkArm=S.punchArm>0?armR:armL, offArm=S.punchArm>0?armL:armR;
     if(S.yankT>0){                            // arm thrown out toward the yanked enemy
       armR.rotation.x += (-2.5-armR.rotation.x)*dt*18;
